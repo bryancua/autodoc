@@ -19,8 +19,8 @@ import (
 // Feature is one part of the program.
 type Feature interface {
 	Name() string
-	State() map[string]any                 // its App.* sources and their first values
-	Commands() map[string]decl.HandlerFunc // its handlers, by full name: "App.openTodos"
+	State() map[string]any        // its App.* sources and their first values
+	Commands() map[string]Command // its commands, by full name: "App.openTodos" (command.go)
 }
 
 // Optional parts of a Feature, asserted once when the registry is built.
@@ -68,7 +68,7 @@ func newRegistry(fs ...Feature) (*registry, error) {
 			if err := claim(f, name); err != nil {
 				return nil, err
 			}
-			r.handlers[name] = cmds[name]
+			r.handlers[name] = cmds[name].handler(name)
 		}
 	}
 	return r, nil
@@ -131,15 +131,16 @@ func (r *registry) event(kind, workspace, detail string) bool {
 
 // features are the program's parts, in the order the registry merges them.
 func (h *Host) features() []Feature {
-	return []Feature{legacy{h}, newStartup(core{h}, h.aboutInfo.Version), newTodos(core{h}), h.luaFeature()}
+	h.asker = newAsker(core{h})
+	return []Feature{legacy{h}, h.asker, newStartup(core{h}, h.aboutInfo.Version), newTodos(core{h}), h.luaFeature()}
 }
 
 // legacy is the host as it is: everything not yet a feature of its own.
 type legacy struct{ h *Host }
 
-func (legacy) Name() string                            { return "legacy" }
-func (l legacy) State() map[string]any                 { return l.h.state() }
-func (l legacy) Commands() map[string]decl.HandlerFunc { return l.h.commands() }
+func (legacy) Name() string                   { return "legacy" }
+func (l legacy) State() map[string]any        { return l.h.state() }
+func (l legacy) Commands() map[string]Command { return l.h.commands() }
 
 // Core is what a feature may use of the host: all of it, so a feature never reaches for a Host
 // field. Every method runs on the loop, as the feature's own handlers do.
@@ -148,6 +149,8 @@ type Core interface {
 	Open(id string)
 	Close(id string)
 	Notify(msg string)
+	// Ask asks a yes-or-no question (ask.go): OnYes runs on Yes; the Asked rewrites its text.
+	Ask(q Question) Asked
 	// Workspace is the workspace in use; "" before one is entered.
 	Workspace() string
 	// Prefs are the preferences in effect.
@@ -187,6 +190,7 @@ func (c core) Set(name string, v any)        { c.h.set(name, v) }
 func (c core) Open(id string)                { c.h.open(id) }
 func (c core) Close(id string)               { c.h.closeDialog(id) }
 func (c core) Notify(msg string)             { c.h.notify(msg) }
+func (c core) Ask(q Question) Asked          { return c.h.ask(q) }
 func (c core) Workspace() string             { return c.h.ws }
 func (c core) Prefs() prefs                  { return c.h.prefs }
 func (c core) OpenFile(abs string)           { c.h.openAbsolute(abs) }

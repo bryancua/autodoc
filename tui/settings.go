@@ -806,12 +806,9 @@ func (h *Host) saved(name string, c map[string]any) {
 // types, include, exclude, the three file types, section, policy, provider, destination, its DSN
 // and schema, vector index, source, its DSN and schema, view args, the registered types on, the
 // document formats on.
-func settingsArgs(fn func(settingsForm)) func([]qml.SpecValue) error {
+func settingsArgs(fn func(settingsForm)) Command {
 	const want = 22
-	return func(args []qml.SpecValue) error {
-		if len(args) != want {
-			return fmt.Errorf("App.saveSettings takes the dialog's %d fields, and was given %d", want, len(args))
-		}
+	return Command{Args: make([]qml.SpecValueKind, want), What: fmt.Sprintf("the dialog's %d fields", want), Run: func(args []qml.SpecValue) error {
 		s := func(i int) string { return args[i].Raw }
 		n := func(i int) int {
 			v, err := strconv.Atoi(args[i].Raw)
@@ -825,7 +822,7 @@ func settingsArgs(fn func(settingsForm)) func([]qml.SpecValue) error {
 			dest: n(12), destDSN: s(13), destSchema: s(14), index: n(15), src: n(16), srcDSN: s(17), srcSchema: s(18), viewArgs: s(19),
 			code: s(20), docs: s(21)})
 		return nil
-	}
+	}}
 }
 
 // ---- the manager's right-hand pane ----

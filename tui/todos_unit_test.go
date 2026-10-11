@@ -16,6 +16,7 @@ type scriptedCore struct {
 	calls   []string
 	set     map[string]any
 	opened  []string
+	asked   []Question
 	closed  []string
 	files   []string
 	notes   []string
@@ -33,9 +34,18 @@ func (s *scriptedCore) Set(name string, v any) { s.set[name] = v }
 func (s *scriptedCore) Open(id string)         { s.opened = append(s.opened, id) }
 func (s *scriptedCore) Close(id string)        { s.closed = append(s.closed, id) }
 func (s *scriptedCore) Notify(msg string)      { s.notes = append(s.notes, msg) }
-func (s *scriptedCore) Workspace() string      { return s.ws }
-func (s *scriptedCore) Prefs() prefs           { return prefs{} }
-func (s *scriptedCore) OpenFile(abs string)    { s.files = append(s.files, abs) }
+
+// Ask records the question and holds it for answer: its OnYes runs when the test says Yes.
+func (s *scriptedCore) Ask(q Question) Asked {
+	s.asked = append(s.asked, q)
+	return Asked{}
+}
+
+// yes answers the latest question Yes.
+func (s *scriptedCore) yes()                { s.asked[len(s.asked)-1].OnYes() }
+func (s *scriptedCore) Workspace() string   { return s.ws }
+func (s *scriptedCore) Prefs() prefs        { return prefs{} }
+func (s *scriptedCore) OpenFile(abs string) { s.files = append(s.files, abs) }
 func (s *scriptedCore) Failed(what string, err error) {
 	s.failed = append(s.failed, what+": "+err.Error())
 }
@@ -178,10 +188,10 @@ func TestTodosWritesAClaimedStore(t *testing.T) {
 	}
 	v.moved(0)
 	v.remove()
-	if s.opened[len(s.opened)-1] != "todoRemove" {
-		t.Fatalf("opened %v", s.opened)
+	if len(s.asked) != 1 || s.asked[0].Title != "remove the task?" {
+		t.Fatalf("asked %v", s.asked)
 	}
-	v.removeConfirmed()
+	s.yes()
 	v.cycle()
 	if !s.called("todos.remove[kb t1 r1]") || !s.called("todos.status[kb t1 r1 completed]") {
 		t.Errorf("calls %v", s.calls)
@@ -196,7 +206,7 @@ func TestTodosWritesAClaimedStore(t *testing.T) {
 		t.Errorf("toggles %v %v", s.set["App.todoDetailShown"], s.set["App.todoHelpShown"])
 	}
 	s.answers["todos.remove"] = func([]any) (any, error) { return nil, errors.New("-32071 the task changed") }
-	v.removeConfirmed()
+	s.yes()
 	if len(s.failed) != 1 || !strings.Contains(s.failed[0], "todos.remove") {
 		t.Errorf("failed %v", s.failed)
 	}

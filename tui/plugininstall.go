@@ -459,17 +459,14 @@ func (h *Host) startRemovePlugin(i int) {
 	if !ok {
 		return
 	}
-	h.removingPlugin = m.e.dir
-	h.set("App.removePluginQuestion", fmt.Sprintf("Remove %s? Its directory goes, with what its build made:\n%s",
-		m.e.label(), m.e.dir))
-	h.open("pluginRemove")
+	dir := m.e.dir
+	h.ask(Question{Title: "remove the plugin?", Text: fmt.Sprintf("Remove %s? Its directory goes, with what its build made:\n%s",
+		m.e.label(), dir), No: "&No, keep it", Yes: "&Yes, remove it", OnYes: func() { h.removePluginConfirmed(dir) }})
 }
 
 // removePluginConfirmed removes the plugin asked about: closed first when it is open, and only a
 // directory of the plugins folder itself.
-func (h *Host) removePluginConfirmed() {
-	dir := h.removingPlugin
-	h.removingPlugin = ""
+func (h *Host) removePluginConfirmed(dir string) {
 	if dir == "" || filepath.Dir(dir) != filepath.Clean(h.pluginOpt.Dir) {
 		return
 	}

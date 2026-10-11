@@ -458,30 +458,24 @@ Window {
     WorkspaceManager { id: workspaceManager }
     WorkspaceSettings { id: workspaceSettings }
     WorkspaceRoot { id: workspaceRoot }
-    WorkspaceRemove { id: workspaceRemove }
     PluginAdd { id: pluginAdd }
     PluginConfirm { id: pluginConfirm }
     PluginManager { id: pluginManager }
-    PluginRemove { id: pluginRemove }
     Preferences { id: preferences }
     Fonts { id: fonts }
     Diagram { id: diagram }
     HtmlPreview { id: htmlPreview }
     AIModels { id: aiModels }
     ProviderEdit { id: providerEdit }
-    ProviderRemove { id: providerRemove }
     RankerEdit { id: rankerEdit }
     Recent { id: recent }
     AgentProfiles { id: agentProfiles }
     AgentEdit { id: agentEdit }
     AgentSwitch { id: agentSwitch }
-    RankerRemove { id: rankerRemove }
     RankerWindow { id: rankerWindow }
-    RestartBackend { id: restartBackend }
     Mismatch { id: mismatch }
     Registrations { id: registrations }
     Vectors { id: vectorsDialog }
-    PurgeModel { id: purgeModel }
     Leader { id: leader }
     JumpCard { id: jumpCard }
     PluginKeys { id: pluginKeys }
@@ -491,7 +485,7 @@ Window {
     About { id: about }
     Todos { id: todosDialog }
     TodoNew { id: todoNew }
-    TodoRemove { id: todoRemove }
     TodoFolder { id: todoFolder }
     Notifications { id: notifications }
+    Confirm { id: confirm }
 }

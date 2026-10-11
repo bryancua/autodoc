@@ -119,15 +119,13 @@ func (h *Host) startPurge(i int) {
 		h.set("App.vectorsStatus", fmt.Sprintf("%s is %s", r.name, what))
 		return
 	}
-	h.purging = r
-	h.set("App.purgeQuestion", fmt.Sprintf("Purge %s's %d vectors (%s) from %s? Switching back to it would embed "+
+	ws := h.ws
+	h.ask(Question{Title: "purge the model?", Text: fmt.Sprintf("Purge %s's %d vectors (%s) from %s? Switching back to it would embed "+
 		"every section again; the store gives its room back.", r.name, r.vectors,
-		bytesText(r.f32+r.bits+r.keys), h.ws))
-	h.open("purgeModel")
+		bytesText(r.f32+r.bits+r.keys), ws), OnYes: func() { h.purgeConfirmed(r, ws) }})
 }
 
-func (h *Host) purgeConfirmed() {
-	r, ws := h.purging, h.ws
+func (h *Host) purgeConfirmed(r vectorRow, ws string) {
 	do(h, func(ctx context.Context) error {
 		_, err := h.call(ctx, "index.purge_model", ws, r.fp)
 		return err

@@ -9,8 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/yongjohnlee80/golib/decl"
 )
 
 // STARTUP — About as the program starts, and word of a newer release. AutoDoc only says that one is
@@ -41,7 +39,7 @@ func (*startup) Name() string { return "startup" }
 func (*startup) State() map[string]any {
 	return map[string]any{"App.aboutUpdate": "", "App.aboutUpdateShown": false}
 }
-func (*startup) Commands() map[string]decl.HandlerFunc { return nil }
+func (*startup) Commands() map[string]Command { return nil }
 
 // Started opens About and looks for a newer release, as the preferences say. A build that is not a
 // release (dev, a commit after a tag) looks for none: it has no release to be older than.

@@ -313,16 +313,14 @@ func (h *Host) startRemoveWorkspace(i int) {
 	if !ok {
 		return
 	}
-	h.removing = w.name
-	h.set("App.removeQuestion", fmt.Sprintf("Delete the workspace %s? Its index goes: the files' search, links and "+
-		"history in autodoc. Its files in %s stay as they are, and adding the directory again indexes them anew.", w.name, w.root))
-	h.open("workspaceRemove")
+	h.ask(Question{Title: "delete the workspace?", Text: fmt.Sprintf("Delete the workspace %s? Its index goes: the files' search, links and "+
+		"history in autodoc. Its files in %s stay as they are, and adding the directory again indexes them anew.", w.name, w.root),
+		No: "&No, keep it", Yes: "&Yes, delete it", OnYes: func() { h.removeWorkspaceConfirmed(w.name) }})
 }
 
 // removeWorkspaceConfirmed deletes the workspace; when it is the one in use, unsaved changes are
 // asked about first, and another workspace, if any, is entered.
-func (h *Host) removeWorkspaceConfirmed() {
-	name := h.removing
+func (h *Host) removeWorkspaceConfirmed(name string) {
 	remove := func() {
 		do(h, func(ctx context.Context) error {
 			_, err := h.call(ctx, "workspace.remove", name)

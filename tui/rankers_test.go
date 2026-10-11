@@ -194,7 +194,7 @@ func TestTheRankerFormAndWindow(t *testing.T) {
 	r.h.p.Post(func() { r.h.closeDialog("rankerEdit"); r.h.saveRanker("local", "ftp://nowhere", "", "") })
 	r.s.WaitForText(t, "not saved: a ranker needs a name")
 	// as the form's Save calls it
-	save := r.h.commands()["App.saveRanker"]
+	save := r.h.commands()["App.saveRanker"].handler("App.saveRanker")
 	str := func(v string) qml.SpecValue { return qml.SpecValue{Kind: qml.SpecValueString, Raw: v} }
 	r.h.p.Post(func() {
 		r.h.closeDialog("rankerEdit")
