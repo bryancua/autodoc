@@ -14,7 +14,7 @@ var updateKeys = flag.Bool("update", false, "rewrite the files generated from th
 func TestKeysAreGenerated(t *testing.T) {
 	h := newHost(NewSession("unused", nil), Options{})
 	k := keyCatalog(h.features())
-	if err := k.check(); err != nil {
+	if err := k.check(mainIDs); err != nil {
 		t.Fatal(err)
 	}
 	mainQML, err := os.ReadFile("qml/main.qml")
@@ -80,7 +80,7 @@ func TestACardOpensFromAKey(t *testing.T) {
 			{Card: "agentsCard", Seq: "f", Show: "f", Does: "send the selection", Run: `App.runCommand("agent.selection")`},
 		}}
 	k := keyCatalog([]Feature{agents})
-	if err := k.check(); err != nil {
+	if err := k.check(mainIDs); err != nil {
 		t.Fatal(err)
 	}
 	c, _ := k.card("agentsCard")
@@ -113,6 +113,10 @@ func TestACardOpensFromAKey(t *testing.T) {
 	if _, err := keyCatalog(nil).withGenerated("no markers"); err == nil {
 		t.Error("a main.qml without the markers was rewritten")
 	}
+	// a title is a QML string, quoted whatever it holds
+	if q := cardQML(Card{ID: "x", View: "X", Title: `say "hi" \ bye`}, nil); !strings.Contains(q, `title: "say \"hi\" \\ bye"`) {
+		t.Errorf("the title is not quoted:\n%s", q)
+	}
 }
 
 // The registry refuses a sequence two keys of one place take, a card no key opens or declared twice,
@@ -125,6 +129,20 @@ func TestTheRegistryRefusesKeysThatDoNotFit(t *testing.T) {
 		"the card leader is declared twice":  {cards: []Card{{ID: leader, View: "Other"}}, keys: []Key{{Seq: "F3", Opens: leader}}},
 		"which is not declared":              {keys: []Key{{Card: "nowhere", Seq: "z", Run: "App.x()"}}},
 		"opens the card gone, which is not":  {keys: []Key{{Card: leader, Seq: "Shift+Z", Opens: "gone"}}},
+		// what every card answers itself: q and Escape close it, Backspace goes back
+		"the card leader's q is taken twice":      {keys: []Key{{Card: leader, Seq: "q", Run: "App.x()"}}},
+		"the card leader's Escape is taken twice": {keys: []Key{{Card: leader, Seq: "F4", Also: []string{"Escape"}, Run: "App.x()"}}},
+		"the card subCard's Backspace is taken twice": {cards: []Card{{ID: "subCard", View: "SubCard", Back: leader}},
+			keys: []Key{{Card: leader, Seq: "Shift+Y", Opens: "subCard"}, {Card: "subCard", Seq: "Backspace", Run: "App.x()"}}},
+		// a card's ID and View are QML names, and the ID is no other of main.qml's
+		"needs a lower-camel ID":           {cards: []Card{{ID: "agents-card", View: "AgentsCard"}}, keys: []Key{{Seq: "F5", Opens: "agents-card"}}},
+		"and an upper-camel View":          {cards: []Card{{ID: "agentsCard", View: "agentsCard"}}, keys: []Key{{Seq: "F5", Opens: "agentsCard"}}},
+		"takes an id main.qml already has": {cards: []Card{{ID: "help", View: "HelpCard"}}, keys: []Key{{Seq: "F5", Opens: "help"}}},
+		// Backspace goes where the card came from
+		"whose Backspace goes back to the card leader's": {cards: []Card{{ID: "subCard", View: "SubCard", Back: leader}},
+			keys: []Key{{Seq: "F6", Opens: "subCard"}}},
+		"whose Backspace goes back to the Window's": {cards: []Card{{ID: "subCard", View: "SubCard"}},
+			keys: []Key{{Card: leader, Seq: "Shift+Y", Opens: "subCard"}}},
 	} {
 		f.fake = fake{name: "b"}
 		if _, err := newRegistry(f); err == nil || !strings.Contains(err.Error(), want) {
