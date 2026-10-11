@@ -50,16 +50,17 @@ import (
 
 // Host is the program behind qml/main.qml.
 type Host struct {
-	p       *tuidecl.Program
-	session *Session
-	reg     *registry          // the features, merged (feature.go)
-	asker   *asker             // the one yes-or-no question (ask.go)
-	started bool               // the first preferences were applied: the program has started (applyPrefs)
-	editor  editorWidget       // main.qml's Editor, terminal or native (editor.go)
-	core    *widget.EditorCore // its core: the text, the cursor and the modes
-	gui     bool               // in a window (Options.GUI): the theme kept is gui.theme
-	ctx     context.Context
-	cancel  context.CancelFunc
+	p        *tuidecl.Program
+	session  *Session
+	reg      *registry          // the features, merged (feature.go)
+	asker    *asker             // the one yes-or-no question (ask.go)
+	prefRows []PrefSpec         // every preference declared, the host's and the features' (prefspec.go)
+	started  bool               // the first preferences were applied: the program has started (applyPrefs)
+	editor   editorWidget       // main.qml's Editor, terminal or native (editor.go)
+	core     *widget.EditorCore // its core: the text, the cursor and the modes
+	gui      bool               // in a window (Options.GUI): the theme kept is gui.theme
+	ctx      context.Context
+	cancel   context.CancelFunc
 
 	about     string
 	aboutInfo AboutInfo // what Help › About lists (help.go)

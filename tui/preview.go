@@ -94,13 +94,6 @@ func (h *Host) toggleImagePreviews() {
 	h.say("image previews " + map[bool]string{true: "on", false: "off: diagram sources and the browser"}[v])
 }
 
-func (h *Host) setImagesIndex(i int) {
-	if i == 0 || i == 1 {
-		v := i == 0
-		h.setPref(prefImages, strconv.FormatBool(v), func(p *prefs) { p.images = v })
-	}
-}
-
 // previewing is the image preview open: its dialog, the page it renders, whether that page is as
 // wide as its content (a diagram) and how tall it may be, and its zoom step.
 type previewing struct {

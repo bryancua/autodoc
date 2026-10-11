@@ -1241,24 +1241,24 @@ func TestEveryPreferenceIsKept(t *testing.T) {
 		})
 	}
 	post := func(fn func()) { r.h.p.Post(fn) }
-	post(func() { r.h.setMenuHiddenIndex(1) }) // no: shown
+	post(func() { r.h.choosePrefNamed(prefMenuHide, 1) }) // no: shown
 	stored("tui.menu.autohide", "false")
 	r.s.WaitForText(t, "the menu bar shows")
 	post(func() { r.h.toggleMenuBar() })
 	stored("tui.menu.autohide", "true")
-	post(func() { r.h.setStatusShownIndex(1) }) // no: hidden
+	post(func() { r.h.choosePrefNamed(prefStatus, 1) }) // no: hidden
 	stored("tui.status.shown", "false")
-	post(func() { r.h.setExplorerEdge(2) })
+	post(func() { r.h.choosePrefNamed(prefExplorer, 2) })
 	stored("tui.explorer.edge", "top")
-	post(func() { r.h.setLinksEdge(3) })
+	post(func() { r.h.choosePrefNamed(prefLinks, 3) })
 	stored("tui.links.edge", "bottom")
-	post(func() { r.h.setThemeIndex(1) })
+	post(func() { r.h.choosePrefNamed(themePref(r.h.gui), 1) })
 	stored("tui.theme", "light")
-	post(func() { r.h.setKeymapIndex(1) })
+	post(func() { r.h.choosePrefNamed(prefKeymap, 1) })
 	stored("tui.editor.keymap", "text")
 	post(func() { r.h.toggleKeymap() })
 	stored("tui.editor.keymap", "vim")
-	post(func() { r.h.setStatusShownIndex(0) }) // yes: shown, to read what follows
+	post(func() { r.h.choosePrefNamed(prefStatus, 0) }) // yes: shown, to read what follows
 	stored("tui.status.shown", "true")
 	post(func() { r.h.useTheme("paisley") })
 	r.s.WaitForText(t, `no theme "paisley"`)
@@ -1268,23 +1268,23 @@ func TestEveryPreferenceIsKept(t *testing.T) {
 		t.Fatalf("an unknown theme or keymap changed the preferences: %+v", p)
 	}
 	// the page and the notifications, from the dialog's choosers
-	post(func() { r.h.setWrapIndex(1) }) // no
+	post(func() { r.h.choosePrefNamed(prefWrap, 1) }) // no
 	stored("tui.editor.wrap", "false")
-	post(func() { r.h.setLineNumbersIndex(0) }) // yes
+	post(func() { r.h.choosePrefNamed(prefNumbers, 0) }) // yes
 	stored("tui.editor.linenumbers", "true")
-	post(func() { r.h.setLineNumbersIndex(5) }) // no such row: nothing
-	post(func() { r.h.setIndentMarksIndex(1) }) // the cursor's line
+	post(func() { r.h.choosePrefNamed(prefNumbers, 5) }) // no such row: nothing
+	post(func() { r.h.choosePrefNamed(prefIndent, 1) })  // the cursor's line
 	stored("tui.editor.indentmarks", "cursorLine")
 	post(func() { r.h.setIndentMarks("all") })
 	stored("tui.editor.indentmarks", "all")
-	post(func() { r.h.setIndentMarksIndex(3) }) // no such row: nothing
+	post(func() { r.h.choosePrefNamed(prefIndent, 3) }) // no such row: nothing
 	post(func() { r.h.setIndentMarks("tabs") })
 	r.s.WaitForText(t, `no indentation marks "tabs"`)
-	post(func() { r.h.setToastCorner(indexOf(corners, "top-right")) })
+	post(func() { r.h.choosePrefNamed(prefCorner, indexOf(corners, "top-right")) })
 	stored("tui.toast.corner", "top-right")
-	post(func() { r.h.setToastSeconds(9) }) // row 9: ten seconds
+	post(func() { r.h.choosePrefNamed(prefSeconds, 9) }) // row 9: ten seconds
 	stored("tui.toast.seconds", "10")
-	post(func() { r.h.setToastSeconds(10) }) // eleven: out of range, nothing
+	post(func() { r.h.choosePrefNamed(prefSeconds, 10) }) // eleven: out of range, nothing
 	if p := onLoop(r, func() prefs { return r.h.prefs }); p.toastSeconds != 10 || !p.lineNumbers || p.wrap || p.indentMarks != "all" {
 		t.Fatalf("after the choosers: %+v", p)
 	}
@@ -1904,8 +1904,8 @@ func TestNotificationsAndTheStatusLine(t *testing.T) {
 	r.s.WaitFor(t, "the history closed", func(sc string) bool { return !strings.Contains(sc, "NOTIFICATION") })
 	// the top left, staying 5 seconds: kept, and applied
 	r.h.p.Post(func() {
-		r.h.setToastCorner(indexOf(corners, "top-left"))
-		r.h.setToastSeconds(4)
+		r.h.choosePrefNamed(prefCorner, indexOf(corners, "top-left"))
+		r.h.choosePrefNamed(prefSeconds, 4)
 	})
 	stored := func(name, want string) {
 		t.Helper()
