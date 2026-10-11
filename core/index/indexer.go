@@ -225,8 +225,8 @@ type prepared struct {
 	holdState   string
 	version     vfs.Version
 	meta        chunk.Meta
-	chunks      []chunkT
-	links       []linkT
+	chunks      []DocChunk
+	links       []DocLink
 	frontmatter schema.Result // a Markdown file's facets and diagnostics under the schema
 	adr         string        // the decision record number a document of type adr carries; "" otherwise
 }
@@ -807,6 +807,9 @@ func (x *Indexer) commit(ctx context.Context, batch []*prepared) error {
 	var changed []int64 // the documents written: their codes may differ
 	began := time.Now()
 	err := s.db.Write(ctx, func(tx *store.Tx) error {
+		// the documents go through the writer port: the store's own batch, in this transaction
+		docs := storeWriter{s: s, tx: tx, now: now}.batch()
+		defer func() { changed = docs.changed }()
 		if _, err := s.bumpSeq(tx); err != nil {
 			return err
 		}
@@ -845,11 +848,9 @@ func (x *Indexer) commit(ctx context.Context, batch []*prepared) error {
 					drop = err == nil && vfs.Version(d.Version) != p.version
 				}
 				if drop {
-					id, err := s.deleteDoc(tx, p.path, now)
-					if err != nil {
+					if err := docs.Delete(ctx, p.path); err != nil {
 						return err
 					}
-					changed = append(changed, id)
 				}
 				if err := s.jobs(tx).With(JobPath, p.path).Set(JobAttempts, dao.Incr(1)).
 					Set(JobLastError, p.err.Error()).Update(); err != nil {
@@ -858,19 +859,15 @@ func (x *Indexer) commit(ctx context.Context, batch []*prepared) error {
 				outcomes = append(outcomes, outcome{p: p})
 				continue
 			case p.delete:
-				id, err := s.deleteDoc(tx, p.path, now)
-				if err != nil {
+				if err := docs.Delete(ctx, p.path); err != nil {
 					return err
 				}
-				changed = append(changed, id)
 			case p.hold:
 				// nothing is written: its chunks and vectors stay, searchable
 			case !p.skip:
-				id, err := s.upsertDoc(tx, p, now)
-				if err != nil {
+				if err := docs.Put(ctx, p.doc()); err != nil {
 					return err
 				}
-				changed = append(changed, id)
 			}
 			if err := s.jobs(tx).With(JobPath, p.path).With(JobSeq, p.claimedSeq).Delete(); err != nil {
 				return err
@@ -997,15 +994,15 @@ type oldChunk struct {
 // inserted under the new generation, and the rest die at it. The flip of active_gen is in the same
 // transaction, so a reader sees the old generation or the new one, never a mix. The full-text index
 // follows the chunks by the schema's triggers.
-func (s *Store) upsertDoc(tx *store.Tx, p *prepared, now time.Time) (int64, error) {
+func (s *Store) upsertDoc(tx *store.Tx, p Doc, now time.Time) (int64, error) {
 	var docID, gen int64
 	var oldTitle string
-	d, err := s.documents(tx).With(DocPath, p.path).Get(DocID, DocActiveGen, DocTitle)
+	d, err := s.documents(tx).With(DocPath, p.Path).Get(DocID, DocActiveGen, DocTitle)
 	appeared := errors.Is(err, dao.ErrNoRows)
 	switch {
 	case appeared:
-		if docID, err = s.documents(tx).Set(DocPath, p.path).Set(DocVersion, "").Set(DocActiveGen, int64(0)).
-			Set(DocIndexer, p.indexer).Set(DocIndexedAt, now.Unix()).Insert(); err != nil {
+		if docID, err = s.documents(tx).Set(DocPath, p.Path).Set(DocVersion, "").Set(DocActiveGen, int64(0)).
+			Set(DocIndexer, p.Indexer).Set(DocIndexedAt, now.Unix()).Insert(); err != nil {
 			return 0, err
 		}
 	case err != nil:
@@ -1022,15 +1019,15 @@ func (s *Store) upsertDoc(tx *store.Tx, p *prepared, now time.Time) (int64, erro
 	if err != nil {
 		return 0, err
 	}
-	title, tags := p.meta.Title, strings.Join(p.meta.Tags, " ")
+	title, tags := p.Meta.Title, strings.Join(p.Meta.Tags, " ")
 	metaChanged := title != oldTitle || tags != strings.Join(oldTags, " ")
 	var reused []int64
 	// the new chunks go in as one statement: the full-text trigger makes each insert a statement of
 	// its own savepoint, and FTS5 writes what it holds to disk at every savepoint
 	fresh := s.chunkBatch(tx)
 	added := false
-	for _, c := range p.chunks {
-		key := string(c.hash)
+	for _, c := range p.Chunks {
+		key := string(c.Hash)
 		if occ := old[key]; len(occ) > 0 {
 			id := occ[0]
 			old[key] = occ[1:]
@@ -1041,7 +1038,7 @@ func (s *Store) upsertDoc(tx *store.Tx, p *prepared, now time.Time) (int64, erro
 			reused = append(reused, id)
 			continue
 		}
-		fresh.Add(map[ChunkField]any{ChunkDoc: docID, ChunkHash: c.hash, ChunkTextHash: c.textHash,
+		fresh.Add(map[ChunkField]any{ChunkDoc: docID, ChunkHash: c.Hash, ChunkTextHash: c.TextHash,
 			ChunkGenFrom: next, ChunkOrd: int64(c.Ord), ChunkBreadcrumb: c.Breadcrumb,
 			ChunkBody: c.Body, ChunkEmbed: c.Embed, ChunkTitle: title, ChunkTags: tags,
 			ChunkByteStart: int64(c.ByteStart), ChunkByteEnd: int64(c.ByteEnd), ChunkKind: c.kindOr()})
@@ -1071,47 +1068,47 @@ func (s *Store) upsertDoc(tx *store.Tx, p *prepared, now time.Time) (int64, erro
 			}
 		}
 	}
-	if err := s.replaceValues(tx, s.tags(tx), s.tagBatch(tx), docID, p.meta.Tags); err != nil {
+	if err := s.replaceValues(tx, s.tags(tx), s.tagBatch(tx), docID, p.Meta.Tags); err != nil {
 		return 0, err
 	}
-	if err := s.replaceValues(tx, s.aliases(tx), s.aliasBatch(tx), docID, p.meta.Aliases); err != nil {
+	if err := s.replaceValues(tx, s.aliases(tx), s.aliasBatch(tx), docID, p.Meta.Aliases); err != nil {
 		return 0, err
 	}
-	if err := s.replaceFrontmatter(tx, docID, p.frontmatter); err != nil {
+	if err := s.replaceFrontmatter(tx, docID, p.Frontmatter); err != nil {
 		return 0, err
 	}
 	// the names, the file's own links, then the links elsewhere whose target may have changed: those
 	// under every name the file gained or lost, and, when it appeared, under its path
-	names := namesOf(p.path, p.meta.Aliases)
-	if p.adr != "" {
-		names = append(names, docName{key: adrKey(p.adr)})
+	names := namesOf(p.Path, p.Meta.Aliases)
+	if p.ADR != "" {
+		names = append(names, docName{key: adrKey(p.ADR)})
 	}
 	changed, err := s.writeNames(tx, docID, names)
 	if err != nil {
 		return 0, err
 	}
 	if appeared {
-		changed = append(changed, markdownNames(p.path)...)
+		changed = append(changed, markdownNames(p.Path)...)
 	}
-	if err := s.writeLinks(tx, docID, next, p.links); err != nil {
+	if err := s.writeLinks(tx, docID, next, p.Links); err != nil {
 		return 0, err
 	}
 	if err := s.reresolve(tx, changed, 0); err != nil {
 		return 0, err
 	}
 	var fmJSON, fmErr any
-	if p.meta.FrontmatterJSON != "" {
-		fmJSON = p.meta.FrontmatterJSON
+	if p.Meta.FrontmatterJSON != "" {
+		fmJSON = p.Meta.FrontmatterJSON
 	}
-	if p.meta.FrontmatterErr != "" {
-		fmErr = p.meta.FrontmatterErr
+	if p.Meta.FrontmatterErr != "" {
+		fmErr = p.Meta.FrontmatterErr
 	}
-	if err := s.documents(tx).With(DocID, docID).Set(DocVersion, string(p.version)).Set(DocActiveGen, next).
+	if err := s.documents(tx).With(DocID, docID).Set(DocVersion, string(p.Version)).Set(DocActiveGen, next).
 		Set(DocTitle, title).Set(DocFrontmatterJSON, fmJSON).Set(DocFrontmatterError, fmErr).
-		Set(DocIndexer, p.indexer).Set(DocIndexedAt, now.Unix()).Update(); err != nil {
+		Set(DocIndexer, p.Indexer).Set(DocIndexedAt, now.Unix()).Update(); err != nil {
 		return 0, err
 	}
-	if err := s.logChange(tx, p.path, "upsert", next, now.Unix()); err != nil {
+	if err := s.logChange(tx, p.Path, "upsert", next, now.Unix()); err != nil {
 		return 0, err
 	}
 	// a new generation may hold chunks with no vector yet: the document waits for them

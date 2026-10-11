@@ -26,14 +26,14 @@ const (
 	ReasonAmbiguous = "ambiguous" // several do, at the same depth
 )
 
-// linkT is one link a file makes. name is what resolution looks up: for a wikilink or an embed the
+// DocLink is one link a file makes. Name is what resolution looks up: for a wikilink or an embed the
 // lowercased page name without ".md", after a '/' when it is a relative path (which names one path,
 // never a file name elsewhere); for a markdown link the workspace path it reaches.
-type linkT struct {
-	raw, name, anchor, kind string
-	// keys are a relation link's names, tried in order, name being the first; nil for a body link,
+type DocLink struct {
+	Raw, Name, Anchor, Kind string
+	// Keys are a relation link's names, tried in order, Name being the first; nil for a body link,
 	// which has the one name
-	keys []string
+	Keys []string
 }
 
 // attachments are the file types Obsidian opens that are not files
@@ -52,8 +52,8 @@ var attachments = map[string]bool{
 // dots: "Meeting 2024.05.01"); a markdown link, which names files of every kind (a KB links to its
 // code), only with ".md" or no extension. Either counts when eligible (nil: nothing) indexes it,
 // judged on the workspace path for a path, and on the name as written for a wikilink by name.
-func extractLinks(doc *markdown.Document, p string, eligible func(string) bool) []linkT {
-	var out []linkT
+func extractLinks(doc *markdown.Document, p string, eligible func(string) bool) []DocLink {
+	var out []DocLink
 	indexed := func(target string) bool { return eligible != nil && eligible(target) }
 	wikiFile := func(page string) bool { return !attachments[strings.ToLower(path.Ext(page))] || indexed(page) }
 	targetsFile := func(target string) bool {
@@ -93,11 +93,11 @@ func extractLinks(doc *markdown.Document, p string, eligible func(string) bool) 
 				if c.Kind == markdown.KindEmbed {
 					kind = LinkEmbed
 				}
-				out = append(out, linkT{raw: string(doc.Source[c.Span.Start:c.Span.End]), name: name, anchor: anchor, kind: kind})
+				out = append(out, DocLink{Raw: string(doc.Source[c.Span.Start:c.Span.End]), Name: name, Anchor: anchor, Kind: kind})
 				continue
 			case markdown.KindLink:
 				if target, anchor, ok := localTarget(p, string(c.Dest)); ok && targetsFile(target) {
-					out = append(out, linkT{raw: string(doc.Source[c.Span.Start:c.Span.End]), name: target, anchor: anchor, kind: LinkMarkdown})
+					out = append(out, DocLink{Raw: string(doc.Source[c.Span.Start:c.Span.End]), Name: target, Anchor: anchor, Kind: LinkMarkdown})
 				}
 			}
 			walk(c)
@@ -346,17 +346,17 @@ func (s *Store) resolveStored(tx *store.Tx, linkID int64, kind, name string) (ds
 
 // writeLinks replaces a document's links with links, each resolved as the index stands; a relation
 // link's names go in link_key, in order, so it is found again when any of them changes.
-func (s *Store) writeLinks(tx *store.Tx, docID, gen int64, links []linkT) error {
+func (s *Store) writeLinks(tx *store.Tx, docID, gen int64, links []DocLink) error {
 	if err := s.linksOut(tx).With(LinkSrc, docID).Delete(); err != nil {
 		return err
 	}
 	for _, l := range links {
 		var dst int64
 		var err error
-		if l.keys != nil {
-			dst, _, err = s.resolveKeys(tx, l.keys)
+		if l.Keys != nil {
+			dst, _, err = s.resolveKeys(tx, l.Keys)
 		} else {
-			dst, _, err = s.resolve(tx, l.kind, l.name)
+			dst, _, err = s.resolve(tx, l.Kind, l.Name)
 		}
 		if err != nil {
 			return err
@@ -365,17 +365,17 @@ func (s *Store) writeLinks(tx *store.Tx, docID, gen int64, links []linkT) error 
 		if dst != 0 {
 			d = dst
 		}
-		if l.anchor != "" {
-			anchor = l.anchor
+		if l.Anchor != "" {
+			anchor = l.Anchor
 		}
-		id, err := s.linksOut(tx).Set(LinkSrc, docID).Set(LinkGenFrom, gen).Set(LinkRaw, l.raw).
-			Set(LinkName, l.name).Set(LinkDst, d).Set(LinkAnchor, anchor).Set(LinkKind, l.kind).Insert()
+		id, err := s.linksOut(tx).Set(LinkSrc, docID).Set(LinkGenFrom, gen).Set(LinkRaw, l.Raw).
+			Set(LinkName, l.Name).Set(LinkDst, d).Set(LinkAnchor, anchor).Set(LinkKind, l.Kind).Insert()
 		if err != nil {
 			return err
 		}
-		if len(l.keys) > 0 {
+		if len(l.Keys) > 0 {
 			b := s.linkKeyBatch(tx)
-			for i, k := range l.keys {
+			for i, k := range l.Keys {
 				b.Add(map[LinkKeyField]any{LinkKeyLink: id, LinkKeyOrd: int64(i), LinkKeyKey: k})
 			}
 			if err := b.Flush(); err != nil {

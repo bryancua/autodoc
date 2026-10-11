@@ -7,15 +7,15 @@ import (
 	"github.com/yongjohnlee80/golib/search"
 )
 
-// chunkT is a chunk as the store keeps it: golib's cut (search/chunk), with its two hashes. hash is
+// DocChunk is a chunk as the store keeps it: golib's cut (search/chunk), with its two hashes. Hash is
 // its identity under ChunkerVersion: a chunker change changes every hash, so every chunk is
 // rewritten once. A chunk whose embed text is its own (search.Chunk.Embed) adds it, so a change to
-// it alone is a new chunk too; the built-ins' hashes are unchanged. textHash is exactly the text an
+// it alone is a new chunk too; the built-ins' hashes are unchanged. TextHash is exactly the text an
 // embedding is made of, so a chunker change that keeps the text keeps its vector.
-type chunkT struct {
+type DocChunk struct {
 	search.Chunk
-	hash, textHash []byte
-	kind           string // ChunkSection or ChunkAbstract
+	Hash, TextHash []byte // the chunk's identity, and its text's (what a vector is stored under)
+	Kind           string // ChunkSection or ChunkAbstract
 }
 
 // The kinds of chunk: a document's section, or its abstract.
@@ -29,19 +29,19 @@ const (
 const abstractVersion = "a1"
 
 // abstractChunk is a document's abstract chunk, hashed under its own version.
-func abstractChunk(c search.Chunk) chunkT {
+func abstractChunk(c search.Chunk) DocChunk {
 	out := hashedUnder(abstractVersion, []search.Chunk{c})[0]
-	out.kind = ChunkAbstract
+	out.Kind = ChunkAbstract
 	return out
 }
 
 // hashed is chunks the built-in chunkers cut, with their hashes.
-func hashed(chunks []search.Chunk) []chunkT { return hashedUnder(ChunkerVersion, chunks) }
+func hashed(chunks []search.Chunk) []DocChunk { return hashedUnder(ChunkerVersion, chunks) }
 
 // hashedUnder is chunks cut by a chunker of version, with their hashes: a chunker's change of
 // version rewrites only its own documents' chunks (ADR 0216 §1.5).
-func hashedUnder(version string, chunks []search.Chunk) []chunkT {
-	out := make([]chunkT, len(chunks))
+func hashedUnder(version string, chunks []search.Chunk) []DocChunk {
+	out := make([]DocChunk, len(chunks))
 	for i, c := range chunks {
 		h := sha256.New()
 		h.Write([]byte(version))
@@ -54,7 +54,7 @@ func hashedUnder(version string, chunks []search.Chunk) []chunkT {
 			h.Write([]byte(c.Embed))
 		}
 		t := c.TextHash()
-		out[i] = chunkT{Chunk: c, hash: h.Sum(nil), textHash: t[:]}
+		out[i] = DocChunk{Chunk: c, Hash: h.Sum(nil), TextHash: t[:]}
 	}
 	return out
 }
@@ -71,9 +71,9 @@ func cutRegistered(c search.Chunker, version string, d search.Doc) (cs []search.
 }
 
 // kindOr is the chunk's kind, a section unless it is the abstract.
-func (c chunkT) kindOr() string {
-	if c.kind == "" {
+func (c DocChunk) kindOr() string {
+	if c.Kind == "" {
 		return ChunkSection
 	}
-	return c.kind
+	return c.Kind
 }

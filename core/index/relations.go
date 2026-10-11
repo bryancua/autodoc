@@ -80,8 +80,8 @@ func allDigits(s string) bool {
 // source order. A value's names are tried in order when it is resolved: a path from the workspace
 // root first, then from p's own folder; a wikilink or bare slug by the wikilink names; a number as
 // a decision record's. URLs and prose name no document and are left out.
-func extractRelations(doc *markdown.Document, p string) []linkT {
-	var out []linkT
+func extractRelations(doc *markdown.Document, p string) []DocLink {
+	var out []DocLink
 	for _, r := range chunk.Relations(doc, RelationFields) {
 		ref := chunk.ParseRef(r.Raw)
 		var keys []string
@@ -98,7 +98,7 @@ func extractRelations(doc *markdown.Document, p string) []linkT {
 		if len(keys) == 0 {
 			continue
 		}
-		out = append(out, linkT{raw: r.Raw, name: keys[0], anchor: ref.Anchor, kind: r.Field, keys: keys})
+		out = append(out, DocLink{Raw: r.Raw, Name: keys[0], Anchor: ref.Anchor, Kind: r.Field, Keys: keys})
 	}
 	return out
 }
