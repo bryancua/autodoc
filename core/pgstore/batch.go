@@ -2,7 +2,6 @@ package pgstore
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -11,9 +10,14 @@ import (
 )
 
 // Batch is documents written in one transaction: kept together, or none of them. A Put that loses
-// a compare-and-set to another writer (ErrWriteRace) reads the newer row and writes again, inside
-// the batch, up to putRetries times; past that, or on any other error (a first insert two writers
-// made, which PostgreSQL ends the transaction for), the batch has failed: Rollback it.
+// its compare-and-set to another writer fails with ErrWriteRace and is not written again: the
+// other writer's row is newer than the one the batch read, and versions are opaque, so writing
+// over it would silently drop that writer's work. Any error, that one or another (a first insert
+// two writers made, which PostgreSQL ends the transaction for), fails the batch: Rollback it.
+// What a destination shared by two writers of one tenant should do instead is its ADR's to decide.
+//
+// With no retry, a lost race cannot spin, whatever the isolation. A batch is READ COMMITTED like
+// every write (committedConn), so a lost race is ErrWriteRace, not a serialization failure.
 type Batch struct {
 	s  *Store
 	tx *dao.Transaction
@@ -29,20 +33,11 @@ func (b *Batch) Put(ctx context.Context, d Document) (int64, error) {
 	}
 	tags, facets := nonNil(d.Tags), nonNil(facetPairs(d.Facets))
 	tagText := strings.Join(d.Tags, " ")
-	for range putRetries {
-		id, err := b.s.putIn(ctx, b.tx, d, tags, facets, tagText)
-		if errors.Is(err, ErrWriteRace) {
-			if err := ctx.Err(); err != nil {
-				return 0, fmt.Errorf("pgstore: put %s: %w", d.Path, err)
-			}
-			continue // another writer bumped the generation: write again over the newer row
-		}
-		if err != nil {
-			return 0, fmt.Errorf("pgstore: put %s: %w", d.Path, err)
-		}
-		return id, nil
+	id, err := b.s.putIn(ctx, b.tx, d, tags, facets, tagText)
+	if err != nil {
+		return 0, fmt.Errorf("pgstore: put %s: %w", d.Path, err)
 	}
-	return 0, fmt.Errorf("pgstore: put %s: %w", d.Path, ErrWriteRace)
+	return id, nil
 }
 
 // Delete removes the document at path inside the batch, with its chunks and links. A path not

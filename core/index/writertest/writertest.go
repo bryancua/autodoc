@@ -166,4 +166,25 @@ func Run(t *testing.T, h Harness) {
 			}
 		}
 	})
+
+	t.Run("a batch whose Begin ctx is done keeps nothing", func(t *testing.T) {
+		w, read := h.New(t)
+		bctx, cancel := context.WithCancel(ctx)
+		b, err := w.Begin(bctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cancel()
+		err = b.Put(ctx, doc("a.md", "v1", "first text")) // the operation's own ctx is live
+		if err == nil {
+			err = b.Commit()
+		}
+		if err == nil {
+			t.Error("a batch committed under a canceled Begin ctx")
+		}
+		_ = b.Rollback()
+		if _, ok, err := read(ctx, "a.md"); ok || err != nil {
+			t.Errorf("a batch under a canceled Begin ctx kept its document: %v %v", ok, err)
+		}
+	})
 }

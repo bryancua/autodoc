@@ -39,7 +39,7 @@ var ErrNoTenant = errs.Sentinel(errs.ErrInvalidArgument, "pgstore: no tenant")
 // A Store is safe for concurrent use.
 type Store struct {
 	tenant string
-	rw     schemas // writes, on the connection as given
+	rw     schemas // writes: every transaction READ COMMITTED
 	ro     schemas // views: every transaction REPEATABLE READ, READ ONLY
 }
 
@@ -48,7 +48,7 @@ func New(conn dao.DataConn, tenant string) (*Store, error) {
 	if tenant == "" {
 		return nil, ErrNoTenant
 	}
-	return &Store{tenant: tenant, rw: newSchemas(conn), ro: newSchemas(snapshotConn{conn})}, nil
+	return &Store{tenant: tenant, rw: newSchemas(committedConn{conn}), ro: newSchemas(snapshotConn{conn})}, nil
 }
 
 // snapshotConn is a connection whose transactions are REPEATABLE READ and READ ONLY: dao's
@@ -58,6 +58,16 @@ type snapshotConn struct{ dao.DataConn }
 
 func (c snapshotConn) Begin(ctx context.Context) (dao.TxConn, error) {
 	return dao.BeginConnTx(ctx, c.DataConn, dao.TxOptions{Access: dao.TxReadOnly, Isolation: dao.TxRepeatableRead})
+}
+
+// committedConn is a connection whose transactions are READ COMMITTED, whatever the server's
+// default: a write's compare-and-set reads the generation another writer committed, so a lost
+// race is the conditioned update matching no row (ErrWriteRace), which Put retries in a new
+// transaction. Under REPEATABLE READ it would be a serialization failure instead.
+type committedConn struct{ dao.DataConn }
+
+func (c committedConn) Begin(ctx context.Context) (dao.TxConn, error) {
+	return dao.BeginConnTx(ctx, c.DataConn, dao.TxOptions{Isolation: dao.TxReadCommitted})
 }
 
 // View runs fn in one View: one REPEATABLE READ, READ ONLY transaction, so every retriever and

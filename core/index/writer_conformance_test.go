@@ -32,7 +32,7 @@ func TestTheStoresWriterConforms(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = raw.Close() })
-		return index.NewStore(db, w.ID).Writer(), func(ctx context.Context, path string) (writertest.Kept, bool, error) {
+		return index.BufferedWriter(index.NewStore(db, w.ID)), func(ctx context.Context, path string) (writertest.Kept, bool, error) {
 			return readKept(ctx, raw, w.ID, path)
 		}
 	}})
