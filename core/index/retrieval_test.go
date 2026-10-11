@@ -62,7 +62,7 @@ const withAbstract = "---\ntitle: Storage\nabstract: Where the index keeps its r
 // TestTheAbstractChunk: with the setting on, a document with an abstract gains one chunk, after its
 // sections, of kind abstract; its sections keep their ords and rows. Off again, it goes.
 func TestTheAbstractChunk(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("s.md", withAbstract, "plain.md", "# Plain\n\nno abstract\n")
 	before := e.chunkRows("s.md")
 	if !reflect.DeepEqual(before, []string{"0 section Storage"}) {
@@ -86,7 +86,7 @@ func TestTheAbstractChunk(t *testing.T) {
 // the retriever's whole top N.
 func TestTheAbstractIsLeftOutInsideTheRetriever(t *testing.T) {
 	build := func(abstracts bool) *env {
-		e := newEnv(t, Options{})
+		e := newEnv(t, options{})
 		var pc []string
 		// the abstracts say "heron" often, so each outranks every body that says it once
 		for i := 0; i < retrieverTop+5; i++ {
@@ -120,7 +120,7 @@ func TestTheAbstractIsLeftOutInsideTheRetriever(t *testing.T) {
 // TestTheDemotionInASearch: with demotion asked for, a superseded document's hit sits below its
 // successor's and names it; not asked for, the order is the search's own.
 func TestTheDemotionInASearch(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("old.md", "# Old\n\nkestrel kestrel kestrel\n", "new.md", "---\nsupersedes: [old.md]\n---\n# New\n\nkestrel\n")
 	opts := QueryOpts{Limit: 5, Mode: ModeLexical}
 	if got := pathsOfResult(e.search("kestrel", opts)); !reflect.DeepEqual(got, []string{"old.md", "new.md"}) {
@@ -156,7 +156,7 @@ func pathsOfResult(r Result) []string {
 // TestASupersededHitNamesASuccessorWithNoHit: a superseded hit names its successor though the
 // successor has no hit, whichever side says so: its own superseded_by, or the successor's supersedes.
 func TestASupersededHitNamesASuccessorWithNoHit(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("old.md", "---\nsuperseded_by: [new.md]\n---\n# Old\n\nkestrel\n", "new.md", "# New\n\nnothing here\n",
 		"older.md", "# Older\n\nkestrel\n", "newer.md", "---\nsupersedes: [older.md]\n---\n# Newer\n\nnothing here\n")
 	res := e.search("kestrel", QueryOpts{Limit: 5, Mode: ModeLexical, Retrieval: &Retrieval{DemoteSuperseded: on()}})
@@ -174,7 +174,7 @@ func TestASupersededHitNamesASuccessorWithNoHit(t *testing.T) {
 // ranked beyond it is found, takes its place above the superseded hit, and the cut falls after the
 // move: a limit of one answers with the successor alone.
 func TestTheDemotionCutsAfterItMoves(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("old.md", "# Old\n\nkestrel kestrel kestrel\n", "new.md", "---\nsupersedes: [old.md]\n---\n# New\n\nkestrel\n")
 	opts := QueryOpts{Limit: 1, Mode: ModeLexical}
 	if got := pathsOfResult(e.search("kestrel", opts)); !reflect.DeepEqual(got, []string{"old.md"}) {

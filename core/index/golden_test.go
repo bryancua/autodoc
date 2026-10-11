@@ -174,7 +174,7 @@ func goldenEnv(t testing.TB) (*env, *fakeProvider) {
 	}
 	var sv schemaVar
 	sv.v.Store(&schemaState{sch, "fp1"})
-	e := newEnv(t, Options{Provider: p, Match: goldenMatch, Schema: sv.get, BatchDelay: time.Millisecond})
+	e := newEnv(t, options{Provider: p, Match: goldenMatch, Schema: sv.get, BatchDelay: time.Millisecond})
 	// one document at a time, in path order, so documents and chunks get the same ids every run:
 	// the semantic scan breaks equal Hamming distances by chunk id, and touched paths reach the
 	// indexer's queue in no set order

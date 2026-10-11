@@ -60,7 +60,7 @@ func TestADerivedDocumentOnTheWire(t *testing.T) {
 			t.Fatal(err)
 		}
 		pdf := func(p string) bool { return strings.HasSuffix(p, ".pdf") }
-		ix := index.NewIndexer(index.Open(db, row.ID), fsys, index.Options{Match: pdf, BatchDelay: 5 * time.Millisecond, Registrations: reg})
+		ix := index.New(index.NewStore(db, row.ID), fsys, index.WithMatch(pdf), index.WithBatching(0, 5*time.Millisecond), index.WithRegistrations(reg))
 		return Static(WorkspaceInfo{Name: name, Index: ix, Docs: docs.New(fsys, pdf, docs.WithRegistrations(reg.Kinds()), docs.WithDeriver(reg))})
 	}
 	dir, err := os.MkdirTemp("", "adr") // a short path: macOS bounds a socket's at 104 bytes

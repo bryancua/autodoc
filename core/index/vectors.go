@@ -166,7 +166,7 @@ func (x *Indexer) SweepOrphans(ctx context.Context) (int, error) {
 // SweepOrphansStore does the same for a workspace no indexer writes: no provider, or its root
 // unavailable.
 func SweepOrphansStore(ctx context.Context, db *store.Store, workspace int64) (int, error) {
-	s := Open(db, workspace)
+	s := NewStore(db, workspace)
 	return s.sweepOrphans(ctx, s.storeWrite)
 }
 

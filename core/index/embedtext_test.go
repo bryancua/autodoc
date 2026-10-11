@@ -34,7 +34,7 @@ func TestAChunksOwnEmbedTextIsPartOfItsIdentity(t *testing.T) {
 // TestTheEmbeddingWorkerSendsTheStoredEmbedText: unembedded reads a row's embed text when it has
 // one, else its breadcrumb, a line feed and body, so the text sent is the one its text hash names.
 func TestTheEmbeddingWorkerSendsTheStoredEmbedText(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("a.md", "# A\n\nalpha body\n", "b.md", "# B\n\nbeta body\n")
 	embedText := "func Alpha() // the signature and its documentation"
 	th := sha256.Sum256([]byte(embedText))

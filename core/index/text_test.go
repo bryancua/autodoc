@@ -7,7 +7,7 @@ import (
 )
 
 func TestPlainTextIndexesLiterally(t *testing.T) {
-	env := newEnv(t, Options{Match: func(path string) bool { return strings.HasSuffix(path, ".txt") }})
+	env := newEnv(t, options{Match: func(path string) bool { return strings.HasSuffix(path, ".txt") }})
 	env.put("notes.txt", "# Puffin\n\n[[missing]] and #bird are plain text.\n")
 	hits := env.search("puffin", QueryOpts{}).Hits
 	if len(hits) != 1 || hits[0].Breadcrumb != "notes" {
@@ -22,7 +22,7 @@ func TestPlainTextIndexesLiterally(t *testing.T) {
 }
 
 func TestCommunityIndexerDoesNotReadProDocumentsThroughBroadGlobs(t *testing.T) {
-	env := newEnv(t, Options{Match: func(string) bool { return true }})
+	env := newEnv(t, options{Match: func(string) bool { return true }})
 	for _, extension := range []string{".doc", ".docx", ".odt", ".pdf"} {
 		path := "private" + extension
 		env.write(path, "binary-looking contents")

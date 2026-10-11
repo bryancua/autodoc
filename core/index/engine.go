@@ -38,7 +38,7 @@ func (st searchStore) View(ctx context.Context, fn func(v *View) error) error {
 }
 
 // NewSearcher builds the engine over a workspace's index: embed is nil for a search by words
-// alone. index.Options.NewSearcher replaces it.
+// alone. WithSearcher replaces it.
 type NewSearcher func(st search.Store[int64, *View], embed search.QueryEmbedder) search.Searcher
 
 // defaultSearcher is golib's engine with the search's constants.

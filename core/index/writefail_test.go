@@ -30,7 +30,7 @@ func (e *env) renamed(table string) (undo func()) {
 // write refused), nothing of the batch is written, and its jobs run again: once the failure lifts,
 // every change lands.
 func TestAFailedCommitWritesNothingAndIsRetried(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("keep.md", "---\ntags: [old]\n---\n# Keep\n\nfirst words [[other]]\n", "gone.md", "to be removed\n")
 	version := func(p string) string { v, _, _ := e.store.Version(context.Background(), p); return string(v) }
 	settle := func() { time.Sleep(150 * time.Millisecond) } // several batches try and fail
@@ -93,7 +93,7 @@ func TestAFailedCommitWritesNothingAndIsRetried(t *testing.T) {
 // stays not ready; once the failure lifts, the worker embeds again and the document becomes ready.
 func TestAFailedVectorCommitIsRetried(t *testing.T) {
 	p := newFake("m", "a")
-	e := newEnv(t, Options{Provider: p})
+	e := newEnv(t, options{Provider: p})
 	e.put("a.md", "zebra plains\n")
 	e.ready()
 	undo := e.failWrites("embedding", "INSERT")
@@ -121,7 +121,7 @@ func TestAFailedVectorCommitIsRetried(t *testing.T) {
 func TestTheStatusAndTheViewFailAsThemselves(t *testing.T) {
 	ctx := context.Background()
 	p := newFake("m", "a")
-	e := newEnv(t, Options{Provider: p})
+	e := newEnv(t, options{Provider: p})
 	e.put("a.md", "zebra plains\n")
 	e.ready()
 	e.atHead()
@@ -157,7 +157,7 @@ func TestTheStatusAndTheViewFailAsThemselves(t *testing.T) {
 // TestASearchFailsWhenItsSettingsCannotBeRead: the workspace's retrieval settings are a read of
 // their own; its failing fails the search, rather than answering as if nothing were set.
 func TestASearchFailsWhenItsSettingsCannotBeRead(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("a.md", "# A\n\nkestrel\n")
 	undo := e.renamed("workspace")
 	_, err := e.store.Search(context.Background(), "kestrel", QueryOpts{Limit: 5, Mode: ModeLexical})

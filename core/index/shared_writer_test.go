@@ -52,8 +52,8 @@ func TestTwoWorkspacesShareTheWriter(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		s := Open(db, row.ID)
-		ix := NewIndexer(s, fsys, Options{Match: testMatch, onCommit: record})
+		s := NewStore(db, row.ID)
+		ix := newIndexer(s, fsys, options{Match: testMatch, onCommit: record})
 		all = append(all, &ws{name: name, s: s, ix: ix})
 	}
 	start := time.Now()

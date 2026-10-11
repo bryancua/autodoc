@@ -41,8 +41,9 @@ const (
 	retainRows = 100_000
 )
 
-// Options configures an Indexer. Zero values take the defaults.
-type Options struct {
+// options are an Indexer's settings, each set by an Option; zero values take the defaults. The
+// lower-case ones are tests' seams, which no Option sets.
+type options struct {
 	Workers    int           // parallel readers and parsers (default NumCPU)
 	BatchSize  int           // the writer commits up to this many results at once (default 50)
 	BatchDelay time.Duration // or every this long (default 200 ms)
@@ -99,12 +100,68 @@ type Options struct {
 	Rank Rank
 }
 
+// Option sets one of an Indexer's settings.
+type Option func(*options)
+
+// WithWorkers is how many workers read and parse in parallel (default NumCPU).
+func WithWorkers(n int) Option { return func(o *options) { o.Workers = n } }
+
+// WithBatching is how many results the writer commits at once (default 50), or after how long
+// (default 200 ms), whichever comes first.
+func WithBatching(size int, delay time.Duration) Option {
+	return func(o *options) { o.BatchSize, o.BatchDelay = size, delay }
+}
+
+// WithMatch is which paths are the workspace's (its include and exclude); default all.
+func WithMatch(match func(path string) bool) Option { return func(o *options) { o.Match = match } }
+
+// WithRetry is how long a job whose file could not be read first waits (default 1 s), doubling up
+// to most (default 5 min).
+func WithRetry(first, most time.Duration) Option {
+	return func(o *options) { o.RetryDelay, o.MaxRetryDelay = first, most }
+}
+
+// WithClock is the clock the index's recorded times read (default time.Now).
+func WithClock(c clock.Clock) Option { return func(o *options) { o.Now = c } }
+
+// WithProvider embeds chunks for semantic search; without one, search is lexical only.
+func WithProvider(p embed.Provider) Option { return func(o *options) { o.Provider = p } }
+
+// WithLogger is where the indexer logs (default nowhere).
+func WithLogger(l logger.Logger) Option { return func(o *options) { o.Logger = l } }
+
+// WithExternalEmbedding has the daemon own the embedding worker: onWork is told, without blocking,
+// after each commit with documents.
+func WithExternalEmbedding(onWork func()) Option {
+	return func(o *options) { o.ExternalEmbedding, o.OnEmbeddingWork = true, onWork }
+}
+
+// WithWorkspace is the workspace's name, for the logs.
+func WithWorkspace(name string) Option { return func(o *options) { o.Workspace = name } }
+
+// WithSchema is the workspace's frontmatter schema now and its fingerprint, asked once per document.
+func WithSchema(fn func() (*schema.Schema, string)) Option { return func(o *options) { o.Schema = fn } }
+
+// WithTextExtensions are the workspace's own plain-text extensions, asked once per document.
+func WithTextExtensions(fn func() []string) Option { return func(o *options) { o.TextExtensions = fn } }
+
+// WithRegistrations are the build's chunkers and derivers (ADR 0216); default none.
+func WithRegistrations(t *registrations.Table) Option {
+	return func(o *options) { o.Registrations = t }
+}
+
+// WithSearcher builds the engine that answers searches (default golib's search engine).
+func WithSearcher(fn NewSearcher) Option { return func(o *options) { o.NewSearcher = fn } }
+
+// WithRank is the re-ranking stage searches are wrapped in, for the queries that ask for it.
+func WithRank(r Rank) Option { return func(o *options) { o.Rank = r } }
+
 // Indexer is the store's one writer and the parallel workers that feed it. It implements
 // core/follow's Queue (Touch) and, with its Store, core/follow's Store.
 type Indexer struct {
 	store *Store
 	fsys  vfs.FS
-	opts  Options
+	opts  options
 
 	mu        sync.Mutex
 	touched   map[string]bool // path → forced; drained by the writer
@@ -174,8 +231,17 @@ type prepared struct {
 	adr         string        // the decision record number a document of type adr carries; "" otherwise
 }
 
-// NewIndexer returns the indexer for store over the workspace root fsys.
-func NewIndexer(store *Store, fsys vfs.FS, opts Options) *Indexer {
+// New returns the indexer for store over the workspace root fsys.
+func New(store *Store, fsys vfs.FS, opts ...Option) *Indexer {
+	var o options
+	for _, set := range opts {
+		set(&o)
+	}
+	return newIndexer(store, fsys, o)
+}
+
+// newIndexer is New with its settings given whole, a test's seams among them.
+func newIndexer(store *Store, fsys vfs.FS, opts options) *Indexer {
 	if opts.Workers <= 0 {
 		opts.Workers = runtime.NumCPU()
 	}

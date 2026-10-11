@@ -24,7 +24,7 @@ func (e *env) search(q string, opts QueryOpts) Result {
 }
 
 func TestSearchRanksTitleOverBody(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	// body.md says it three times in a short body; title.md once, in its title (and so its breadcrumb)
 	e.put("body.md", "# Notes\n\nkestrel kestrel kestrel\n", "title.md", "# Kestrel\n\nunrelated words that make the chunk longer than the other\n")
 	res := e.search("kestrel", QueryOpts{})
@@ -43,7 +43,7 @@ func TestSearchRanksTitleOverBody(t *testing.T) {
 // Each word is a phrase of the tokens it holds, so "title:alpha" is the phrase "title alpha": as a
 // column filter it would match no file (no title is alpha).
 func TestSearchQuotesOperators(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("a.md", "alpha beta\n", "b.md", "alpha or beta, near alpha, title alpha\n", "c.md", "gamma\n")
 	for q, want := range map[string][]string{
 		"alpha OR gamma":  nil,              // OR is a word: no file has alpha, or and gamma
@@ -85,7 +85,7 @@ func sortedCopy(ss []string) []string {
 // TestSearchPrefixOnTheLastWord: a '*' ending the last word is a prefix; anywhere else it is
 // punctuation. (The tokenizer stems, so the words here are ones stemming leaves whole.)
 func TestSearchPrefixOnTheLastWord(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("a.md", "zebrafish meeting\n", "b.md", "a zebra\n")
 	eq(t, "zebra*", sortedCopy(hitPaths(e.search("zebra*", QueryOpts{}))), []string{"a.md", "b.md"})
 	eq(t, "zebra", hitPaths(e.search("zebra", QueryOpts{})), []string{"b.md"})
@@ -97,7 +97,7 @@ func TestSearchPrefixOnTheLastWord(t *testing.T) {
 
 // TestSearchCollapsesPerDocument: at most three hits come from one document, then the limit.
 func TestSearchCollapsesPerDocument(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	var b strings.Builder
 	for i := range 6 {
 		fmt.Fprintf(&b, "# S%d\n\nosprey number %d\n\n", i, i)
@@ -121,7 +121,7 @@ func TestSearchCollapsesPerDocument(t *testing.T) {
 // TestSearchBoostsAfterFusion: of two files with the same text, the one linked to ranks first, and
 // a query word equal to a tag lifts its file; each factor is exactly the ADR's.
 func TestSearchBoostsAfterFusion(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	// a.md links to itself, which is no in-link, from a section of its own: the heron chunks match
 	e.put("a.md", "# Same\n\nheron text\n\n## See\n\n[[a]]\n", "b.md", "# Same\n\nheron text\n\n## See\n\nnothing\n")
 	base := e.search("heron", QueryOpts{})
@@ -156,7 +156,7 @@ func TestSearchBoostsAfterFusion(t *testing.T) {
 }
 
 func TestSearchFilters(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("a/x.md", "---\ntags: [red, blue]\n---\nwren\n", "a/y.md", "---\ntags: [red]\n---\nwren\n",
 		"ab/z.md", "---\ntags: [red, blue]\n---\nwren\n", "b.md", "wren #Blue\n")
 	for _, c := range []struct {
@@ -177,7 +177,7 @@ func TestSearchFilters(t *testing.T) {
 }
 
 func TestSearchModes(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("a.md", "finch\n")
 	if _, err := e.store.Search(context.Background(), "finch", QueryOpts{Mode: ModeSemantic}); !errors.Is(err, errs.ErrUnsupported) {
 		t.Errorf("semantic with no provider: %v, want ErrUnsupported", err)
@@ -194,7 +194,7 @@ func TestSearchModes(t *testing.T) {
 
 // TestSearchNeverFindsADeadChunk: text edited away is no hit, though its FTS row is still there.
 func TestSearchNeverFindsADeadChunk(t *testing.T) {
-	e := newEnv(t, Options{noGC: true})
+	e := newEnv(t, options{noGC: true})
 	e.put("a.md", "# A\n\nplover\n")
 	e.put("a.md", "# A\n\nsandpiper\n")
 	if got := hitPaths(e.search("plover", QueryOpts{})); len(got) != 0 {
@@ -211,7 +211,7 @@ func TestSearchNeverFindsADeadChunk(t *testing.T) {
 // TestSearchAcrossCommitsAgrees: searches running while a file flips between two texts get hits
 // whose text and generation agree: odd generations hold one text, even ones the other.
 func TestSearchAcrossCommitsAgrees(t *testing.T) {
-	e := newEnv(t, Options{BatchDelay: 2 * time.Millisecond})
+	e := newEnv(t, options{BatchDelay: 2 * time.Millisecond})
 	texts := [2]string{"# T\n\ncurlew even\n", "# T\n\ncurlew odd\n"}
 	e.put("a.md", texts[1]) // generation 1
 	stop := make(chan struct{})
@@ -260,7 +260,7 @@ func TestSearchAcrossCommitsAgrees(t *testing.T) {
 // TestFileWithNoTextIsFound: a note that is only its title (a heading, or frontmatter) is found by
 // its title, though it has no body to chunk.
 func TestFileWithNoTextIsFound(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("a.md", "# Kittiwake\n", "b.md", "---\ntitle: Puffin\n---\n", "c.md", "")
 	eq(t, "heading", hitPaths(e.search("kittiwake", QueryOpts{})), []string{"a.md"})
 	eq(t, "frontmatter", hitPaths(e.search("puffin", QueryOpts{})), []string{"b.md"})

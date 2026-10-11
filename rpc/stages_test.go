@@ -132,8 +132,7 @@ func rankedServer(t *testing.T, ranker rank.Ranker) *golibrpc.Client {
 	h := &rank.Holder{}
 	h.Set(ranker, rank.DefaultWindow)
 	fsys := memfs.New()
-	ix := index.NewIndexer(index.Open(db, row.ID), fsys, index.Options{Match: md, BatchDelay: 5 * time.Millisecond,
-		Rank: index.Rank{Source: h}})
+	ix := index.New(index.NewStore(db, row.ID), fsys, index.WithMatch(md), index.WithBatching(0, 5*time.Millisecond), index.WithRank(index.Rank{Source: h}))
 	ixDone := make(chan struct{})
 	go func() { _ = ix.Run(ctx); close(ixDone) }()
 	dir, err := os.MkdirTemp("", "ads")

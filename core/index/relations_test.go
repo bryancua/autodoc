@@ -29,7 +29,7 @@ const adr19 = "---\ntype: adr\nnumber: \"0019\"\n---\n# Old\n"
 // TestRelationsBecomeTypedLinks: each relation value that names a document is a link of its
 // field's kind, after the body's links; a URL and prose make none.
 func TestRelationsBecomeTypedLinks(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("adrs/0019-old.md", adr19, "adrs/a.md", "a", "y.md", "y",
 		"x.md", "---\nsupersedes: 0019\namends:\n  - adrs/a.md §2\nrelated: [[y]]\n"+
 			"sources:\n  - https://example.com/x\n  - \"Johno 2026-10-06 (chat): keep it simple\"\n---\nSee [[y]].\n")
@@ -52,7 +52,7 @@ func TestRelationsBecomeTypedLinks(t *testing.T) {
 // record arrives, whichever way the number is padded, and comes loose when the record's number
 // changes.
 func TestAnADRNumberWakesOnArrival(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("x.md", "---\nadr: \"0021\"\n---\nbody\n")
 	eq(t, "before the record", e.kinds("x.md"), []string{"adr 0021 -> -"})
 	e.put("adrs/r.md", "---\ntype: adr\nnumber: 21\n---\n# R\n")
@@ -67,7 +67,7 @@ func TestAnADRNumberWakesOnArrival(t *testing.T) {
 // first, then from the document's folder. The root wins when both exist, and the folder's takes
 // over again when the root's goes.
 func TestARelationPathTriesTheRootFirst(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("notes/x.md", "the folder's", "notes/n.md", "---\namends: [x.md]\n---\nbody\n")
 	eq(t, "the folder's only", e.kinds("notes/n.md"), []string{"amends x.md -> notes/x.md"})
 	e.put("x.md", "the root's")
@@ -84,7 +84,7 @@ func TestARelationPathTriesTheRootFirst(t *testing.T) {
 // TestARelationFollowsItsTargetsName: a relation by name re-resolves when the document answering
 // to the name moves, as a body wikilink does.
 func TestARelationFollowsItsTargetsName(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("t.md", "t", "src.md", "---\nrelated: [golib-t]\n---\nbody\n", "golib-t.md", "first")
 	eq(t, "by name", e.kinds("src.md"), []string{"related golib-t -> golib-t.md"})
 	e.remove("golib-t.md")
@@ -94,7 +94,7 @@ func TestARelationFollowsItsTargetsName(t *testing.T) {
 
 // TestRelationsAreNotInLinks: the in-links boost counts body links; a relation leaves it as it was.
 func TestRelationsAreNotInLinks(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("t.md", "target", "a.md", "[[t]]", "b.md", "---\nrelated: [[t]]\n---\nbody\n", "c.md", "---\nsupersedes: [t.md]\n---\nbody\n")
 	ctx := context.Background()
 	err := searchStore{s: e.store, sem: e.ix.sem}.View(ctx, func(v *View) error {
@@ -119,7 +119,7 @@ func TestRelationsAreNotInLinks(t *testing.T) {
 // TestTheBodyKindsWalkNoRelation: a walk given the body kinds goes through no relation, so a
 // document reached only through one is not in the neighbourhood, and nor is what lies past it.
 func TestTheBodyKindsWalkNoRelation(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	// a --supersedes--> b --wikilink--> c
 	e.put("a.md", "---\nsupersedes: [b.md]\n---\nbody\n", "b.md", "[[c]]", "c.md", "c")
 	ctx := context.Background()
@@ -152,7 +152,7 @@ func TestTheBodyKindsWalkNoRelation(t *testing.T) {
 // neither is unresolved, yet a loop has no order: both relations are listed as a cycle, with every
 // kind, and not with the body kinds alone.
 func TestASupersessionLoopIsReported(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("a.md", "---\nsupersedes: [b.md]\n---\nA\n", "b.md", "---\nsuperseded_by: [a.md]\nsupersedes: [a.md]\n---\nB\n",
 		"c.md", "---\nsupersedes: [d.md]\n---\nC\n", "d.md", "D", "broken.md", "[[nowhere]]",
 		// both sides of one relation, which agree: x replaced y; no loop
@@ -177,7 +177,7 @@ func TestASupersessionLoopIsReported(t *testing.T) {
 // TestACycleIsListedByItsOwnKind: a loop is found through either supersession kind, but a row is
 // listed only when its own kind was asked for.
 func TestACycleIsListedByItsOwnKind(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	// a loop of superseded_by alone: m says n replaced it, n says m did
 	e.put("m.md", "---\nsuperseded_by: [n.md]\n---\nM\n", "n.md", "---\nsuperseded_by: [m.md]\n---\nN\n",
 		// a loop of both kinds: s says it replaced t, and that t replaced it
@@ -201,7 +201,7 @@ func TestACycleIsListedByItsOwnKind(t *testing.T) {
 // TestARelationWakesByALaterName: a relation with neither of its paths there resolves when the one
 // its second name gives arrives, though the link is stored under its first.
 func TestARelationWakesByALaterName(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("notes/n.md", "---\namends: [x.md]\n---\nbody\n")
 	eq(t, "neither", e.kinds("notes/n.md"), []string{"amends x.md -> -"})
 	e.put("notes/x.md", "the folder's")

@@ -192,9 +192,9 @@ func startDaemonWith(t *testing.T, sock string, workspaces map[string][]string, 
 		if err != nil {
 			t.Fatal(err)
 		}
-		ixs := index.Open(db, row.ID)
-		ix := index.NewIndexer(ixs, fsys, index.Options{Match: match, BatchDelay: 5 * time.Millisecond, Workers: workers, Registrations: derives})
-		f := follow.New(fsys, ix, ix, follow.Options{Match: match, PollInterval: 20 * time.Millisecond})
+		ixs := index.NewStore(db, row.ID)
+		ix := index.New(ixs, fsys, index.WithMatch(match), index.WithBatching(0, 5*time.Millisecond), index.WithWorkers(workers), index.WithRegistrations(derives))
+		f := follow.New(fsys, ix, ix, follow.WithMatch(match), follow.WithPollInterval(20*time.Millisecond))
 		ix.SetRescanner(f)
 		cores.Go(func() { _ = ix.Run(ctx) })
 		cores.Go(func() { _ = f.Run(ctx) })
