@@ -69,7 +69,7 @@ func (m *Workspaces) applyTextExtensions(ctx context.Context, s *served, norm []
 	t := m.textExtensionsFor(s.id)
 	old := t.load()
 	t.store(norm)
-	if s.w.Index == nil {
+	if s.ix == nil {
 		return
 	}
 	var changed []string
@@ -84,14 +84,14 @@ func (m *Workspaces) applyTextExtensions(ctx context.Context, s *served, norm []
 		}
 	}
 	if len(changed) > 0 {
-		indexed, err := s.w.Index.PathsUnder(ctx, ".")
+		indexed, err := s.ix.PathsUnder(ctx, ".")
 		if err != nil {
-			logger.Warning(m.opts.Log, err, logger.Fields{"event": "index.reindex.failed", "workspace": s.w.Name})
+			logger.Warning(m.opts.Log, err, logger.Fields{"event": "index.reindex.failed", "workspace_id": s.id})
 			return
 		}
 		for _, p := range indexed {
 			if slices.Contains(changed, kind.Ext(p)) {
-				_ = s.w.Index.Reindex(ctx, p) // a held document keeps its rows: no type of the workspace's reads it
+				_ = s.ix.Reindex(ctx, p) // a held document keeps its rows: no type of the workspace's reads it
 			}
 		}
 	}

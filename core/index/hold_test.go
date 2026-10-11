@@ -93,11 +93,11 @@ func TestIdentitiesParseOneWay(t *testing.T) {
 func TestADaemonHoldsWhatItCannotReadAgain(t *testing.T) {
 	ctx := context.Background()
 	reg := registered(t, &funcChunker{version: "fake-1"})
-	e := newEnv(t, Options{Match: goAndMarkdown, Registrations: reg})
+	e := newEnv(t, options{Match: goAndMarkdown, Registrations: reg})
 	e.put("a.go", "func Kestrel() {\n\thover()\n}\n", "b.go", "func Falcon() {\n\tstoop()\n}\n", "n.md", "# N\n\nnotes\n")
 	recorded := e.indexerOf("a.go")
 
-	e.open(Options{Match: goAndMarkdown}) // the community build, over the same store
+	e.open(options{Match: goAndMarkdown}) // the community build, over the same store
 	hold := func(q string) string {
 		t.Helper()
 		r := e.query(q, QueryOpts{Mode: ModeLexical})
@@ -148,13 +148,13 @@ func TestADaemonHoldsWhatItCannotReadAgain(t *testing.T) {
 		t.Fatalf("after deleting b.go: status %+v", st)
 	}
 	// the rules delete it; included again, it is this daemon's
-	e.open(Options{Match: testMatch})
+	e.open(options{Match: testMatch})
 	e.ix.Touch("a.go")
 	e.eventually("a.go excluded", func() bool { _, ok, _ := e.store.Version(context.Background(), "a.go"); return !ok })
 	if st := status(); st.Held != 0 {
 		t.Fatalf("after excluding a.go: status %+v", st)
 	}
-	e.open(Options{Match: goAndMarkdown})
+	e.open(options{Match: goAndMarkdown})
 	e.ix.Touch("a.go")
 	e.indexedAt("a.go")
 	if got := hold("kestrel"); got != "" {
@@ -165,12 +165,12 @@ func TestADaemonHoldsWhatItCannotReadAgain(t *testing.T) {
 // TestADaemonWithTheChunkerUpgrades: a file a community daemon indexed as Markdown is cut again by
 // a daemon with its chunker, since its kind there is Registered.
 func TestADaemonWithTheChunkerUpgrades(t *testing.T) {
-	e := newEnv(t, Options{Match: goAndMarkdown})
+	e := newEnv(t, options{Match: goAndMarkdown})
 	e.put("a.go", goSrc)
 	if id, _ := ParseIdentity(e.indexerOf("a.go")); id.Form != BuiltIn {
 		t.Fatalf("the community build recorded %q", e.indexerOf("a.go"))
 	}
-	e.open(Options{Match: goAndMarkdown, Registrations: registered(t, &funcChunker{version: "fake-1"})})
+	e.open(options{Match: goAndMarkdown, Registrations: registered(t, &funcChunker{version: "fake-1"})})
 	e.eventually("a.go cut by its chunker", func() bool { return e.indexerOf("a.go") == "c.go@fake-1.s3.t512" })
 }
 
@@ -179,7 +179,7 @@ func TestADaemonWithTheChunkerUpgrades(t *testing.T) {
 func TestADerivedDocumentIsHeldNotDeleted(t *testing.T) {
 	ctx := context.Background()
 	pdfToo := func(p string) bool { return goAndMarkdown(p) || strings.HasSuffix(p, ".pdf") }
-	e := newEnv(t, Options{Match: pdfToo})
+	e := newEnv(t, options{Match: pdfToo})
 	e.write("a.pdf", "%PDF-1.7")
 	fi, err := e.fsys.Stat(ctx, "a.pdf")
 	if err != nil {
@@ -187,7 +187,7 @@ func TestADerivedDocumentIsHeldNotDeleted(t *testing.T) {
 	}
 	e.exec(`INSERT INTO document(workspace_id, path, version, active_gen, indexer, indexed_at) VALUES (?, 'a.pdf', ?, 1, ?, 0)`,
 		e.ws, string(fi.Version), derivedVersion(".pdf", "autorag/pdf", "1", "c"+ChunkerVersion+".s3.t512"))
-	e.open(Options{Match: pdfToo}) // the held set is read from the rows the store has now
+	e.open(options{Match: pdfToo}) // the held set is read from the rows the store has now
 	e.ix.Touch("a.pdf")
 	e.eventually("a.pdf checked", func() bool {
 		st, err := e.ix.Status(ctx)

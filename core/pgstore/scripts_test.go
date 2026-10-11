@@ -11,10 +11,11 @@ import (
 // set. A released script NEVER changes (docs/ops/schema-scripts.md): the ledger records the
 // digest it was applied with, and an edit under the same name is a schema no store agrees with.
 // A script adds its line here when it ships in a tagged release; an existing line never changes.
-// The baseline ships for the first time with this package, so its digest is recorded at that
-// release.
+// Each digest is the script as the first tag that shipped it has it.
 var released = map[string]map[string]string{
-	dao.DialectPostgres: {},
+	dao.DialectPostgres: {
+		"000001_update_initialize_tables.sql": "ff33bff8cc82b6538bca3d9d5f9a7623fff69a303de8c11be55d215d379228a1", // v0.1.14
+	},
 }
 
 // Every script in the embedded set loads, splits into statements, and has the baseline first.

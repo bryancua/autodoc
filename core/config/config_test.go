@@ -83,7 +83,7 @@ func TestNormalizeWorkspace(t *testing.T) {
 	if w.Root != filepath.Join(home, "notes") {
 		t.Errorf("root = %q, want ~ expanded", w.Root)
 	}
-	if !reflect.DeepEqual(w.Include, config.DefaultInclude) || !reflect.DeepEqual(w.Exclude, config.DefaultExclude) {
+	if !reflect.DeepEqual(w.Include, config.DefaultInclude()) || !reflect.DeepEqual(w.Exclude, config.DefaultExclude()) {
 		t.Errorf("patterns = %v / %v, want the defaults", w.Include, w.Exclude)
 	}
 	w, err = config.NormalizeWorkspace(config.Workspace{Name: "kb", Root: "/srv/kb", Include: []string{"docs/**/*.md", "*.markdown"}, Exclude: []string{}})
@@ -117,15 +117,15 @@ func TestPaths(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", state)
 	if d, err := (config.Server{}).StateDirPath(); err != nil || d != filepath.Join(state, "autodoc") {
 		t.Errorf("StateDirPath = %q, %v", d, err)
-	} else if fi, _ := os.Stat(d); fi.Mode().Perm() != 0o700 {
-		t.Errorf("the state directory is %v, want 0700", fi.Mode().Perm())
+	} else if _, err := os.Stat(d); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("resolving the state directory touched the disk: %v", err)
 	}
 	data := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", data)
 	if p, err := (config.Server{}).StorePath(); err != nil || p != filepath.Join(data, "autodoc", "autodoc.db") {
 		t.Errorf("StorePath = %q, %v", p, err)
-	} else if fi, _ := os.Stat(filepath.Dir(p)); fi.Mode().Perm() != 0o700 {
-		t.Errorf("the store's directory is %v, want 0700", fi.Mode().Perm())
+	} else if _, err := os.Stat(filepath.Dir(p)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("resolving the store touched the disk: %v", err)
 	}
 	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
 	if s, _ := (config.Server{}).SocketPath(); s != "/run/user/1000/autodoc.sock" {

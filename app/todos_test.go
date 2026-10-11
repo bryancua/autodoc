@@ -9,6 +9,7 @@ import (
 
 	"github.com/yongjohnlee80/autodoc/core/store"
 	"github.com/yongjohnlee80/autodoc/core/todo"
+	"github.com/yongjohnlee80/autodoc/core/todo/sqlitejournal"
 	"github.com/yongjohnlee80/autodoc/rpc"
 )
 
@@ -23,7 +24,7 @@ func TestTheDaemonServesTheTodosModule(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	kb := t.TempDir()
-	deps := &moduleDeps{store: db, workspaces: rpc.Fixed(&rpc.Workspace{Name: "kb", Root: kb}), journal: db.TodoJournal(), log: logger.Nop{}}
+	deps := &moduleDeps{store: db, workspaces: rpc.Fixed(rpc.Static(rpc.WorkspaceInfo{Name: "kb", Root: kb})), journal: sqlitejournal.New(db), log: logger.Nop{}}
 	ms := modules(deps)
 	if len(ms) != 1 || ms[0].Name() != "todos" {
 		t.Fatalf("modules %v", ms)

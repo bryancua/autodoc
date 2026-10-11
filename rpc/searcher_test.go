@@ -50,8 +50,7 @@ func TestASearcherSwappedInAnswersSearchQuery(t *testing.T) {
 	}
 	fake := &fakeSearcher{}
 	fsys := memfs.New()
-	ix := index.NewIndexer(index.Open(db, row.ID), fsys, index.Options{Match: md, BatchDelay: 5 * time.Millisecond,
-		NewSearcher: func(search.Store[int64, *index.View], search.QueryEmbedder) search.Searcher { return fake }})
+	ix := index.New(index.NewStore(db, row.ID), fsys, index.WithMatch(md), index.WithBatching(0, 5*time.Millisecond), index.WithSearcher(func(search.Store[int64, *index.View], search.QueryEmbedder) search.Searcher { return fake }))
 	ixDone := make(chan struct{})
 	go func() { _ = ix.Run(ctx); close(ixDone) }()
 	// a short directory: macOS caps a unix socket's path at 104 bytes, and t.TempDir() holds the
@@ -66,7 +65,7 @@ func TestASearcherSwappedInAnswersSearchQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := New(Fixed(&Workspace{Name: "kb", Root: "/roots/kb", Index: ix, Docs: docs.New(fsys, md)}), "v-test", WithListener(ln))
+	srv := New(Fixed(Static(WorkspaceInfo{Name: "kb", Root: "/roots/kb", Index: ix, Docs: docs.New(fsys, md)})), "v-test", WithListener(ln))
 	srvDone := make(chan error, 1)
 	go func() { srvDone <- srv.Run(ctx) }()
 	t.Cleanup(func() {

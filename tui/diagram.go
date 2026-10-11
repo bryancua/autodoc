@@ -4,10 +4,12 @@ import (
 	"strings"
 
 	"github.com/yongjohnlee80/golib/parse/markdown"
+
+	"github.com/yongjohnlee80/autodoc/core/kind"
 )
 
 func mermaidBlock(source []byte, cursor int) (string, bool) {
-	document := markdown.Parse(source, markdown.GFM(), markdown.Obsidian())
+	document := kind.ParseMarkdown(source)
 	var first, selected string
 	var walk func(*markdown.Node)
 	walk = func(node *markdown.Node) {

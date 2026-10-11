@@ -17,16 +17,16 @@ func TestAChunksOwnEmbedTextIsPartOfItsIdentity(t *testing.T) {
 	plain := search.Chunk{Breadcrumb: "a.go > F", Body: "func F() {}"}
 	h := sha256.New()
 	h.Write([]byte(ChunkerVersion + "\x00a.go > F\x00func F() {}"))
-	if got := hashed([]search.Chunk{plain})[0]; !bytes.Equal(got.hash, h.Sum(nil)) {
+	if got := hashed([]search.Chunk{plain})[0]; !bytes.Equal(got.Hash, h.Sum(nil)) {
 		t.Fatal("a chunk with no embed text of its own hashes otherwise than before")
 	}
 	sig, doc := plain, plain
 	sig.Embed, doc.Embed = "func F()", "func F() // F does nothing"
 	cs := hashed([]search.Chunk{plain, sig, doc})
-	if bytes.Equal(cs[0].hash, cs[1].hash) || bytes.Equal(cs[1].hash, cs[2].hash) {
+	if bytes.Equal(cs[0].Hash, cs[1].Hash) || bytes.Equal(cs[1].Hash, cs[2].Hash) {
 		t.Fatal("chunks differing only in their embed text share an identity")
 	}
-	if want := sha256.Sum256([]byte("func F()")); !bytes.Equal(cs[1].textHash, want[:]) {
+	if want := sha256.Sum256([]byte("func F()")); !bytes.Equal(cs[1].TextHash, want[:]) {
 		t.Fatal("the text hash is not the embed text's")
 	}
 }
@@ -34,7 +34,7 @@ func TestAChunksOwnEmbedTextIsPartOfItsIdentity(t *testing.T) {
 // TestTheEmbeddingWorkerSendsTheStoredEmbedText: unembedded reads a row's embed text when it has
 // one, else its breadcrumb, a line feed and body, so the text sent is the one its text hash names.
 func TestTheEmbeddingWorkerSendsTheStoredEmbedText(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("a.md", "# A\n\nalpha body\n", "b.md", "# B\n\nbeta body\n")
 	embedText := "func Alpha() // the signature and its documentation"
 	th := sha256.Sum256([]byte(embedText))

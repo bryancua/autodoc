@@ -105,7 +105,8 @@ func (s *Store) Checkpoint(ctx context.Context) error {
 // Compact puts the store in incremental auto-vacuum mode and rewrites it with VACUUM. VACUUM may need
 // free space of twice the store's size, a temporary copy and its journal (sqlite.org/lang_vacuum),
 // so less than that is ErrNoRoom, before anything runs. Its temporary files go beside the store
-// (tempBeside, at the process's first connection), never to the system's temp directory.
+// when the process set SQLITE_TMPDIR before its first connection (internal/endpoint's MakeDataDir
+// does), never to the system's temp directory.
 //
 // The rewrite goes through the write-ahead log. A read holding the old snapshot keeps the log from
 // being checkpointed back into a smaller file: the store reaches its new size at the first checkpoint

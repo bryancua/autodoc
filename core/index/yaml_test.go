@@ -6,7 +6,7 @@ import (
 )
 
 func TestYAMLIndexesValuesWithKeyPathAndSourceSpan(t *testing.T) {
-	env := newEnv(t, Options{Match: func(path string) bool { return strings.HasSuffix(path, ".yaml") }})
+	env := newEnv(t, options{Match: func(path string) bool { return strings.HasSuffix(path, ".yaml") }})
 	source := "title: Deployment\ndatabase:\n  engine: PostgreSQL\n  port: 5432\n"
 	env.put("settings.yaml", source)
 	hits := env.search("postgresql", QueryOpts{}).Hits
@@ -21,7 +21,7 @@ func TestYAMLIndexesValuesWithKeyPathAndSourceSpan(t *testing.T) {
 }
 
 func TestInvalidYAMLStaysLexicallySearchable(t *testing.T) {
-	env := newEnv(t, Options{Match: func(path string) bool { return strings.HasSuffix(path, ".yml") }})
+	env := newEnv(t, options{Match: func(path string) bool { return strings.HasSuffix(path, ".yml") }})
 	env.put("broken.yml", "broken: [puffin\n")
 	if hits := env.search("puffin", QueryOpts{}).Hits; len(hits) != 1 || hits[0].Breadcrumb != "broken" {
 		t.Fatalf("invalid YAML search hits = %+v", hits)

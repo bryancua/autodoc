@@ -99,7 +99,7 @@ const goSrc = "package a\n\nfunc A() {\n\treturn\n}\n\nfunc B() {\n\treturn\n}\n
 // recorded under its extension and version, with the chunker's embed text; a build with no
 // registrations reads the same file as Markdown, as before.
 func TestARegisteredChunkerCutsItsFiles(t *testing.T) {
-	e := newEnv(t, Options{Match: goAndMarkdown, Registrations: registered(t, &funcChunker{version: "fake-1"})})
+	e := newEnv(t, options{Match: goAndMarkdown, Registrations: registered(t, &funcChunker{version: "fake-1"})})
 	e.put("a.go", goSrc)
 	if got := e.indexerOf("a.go"); got != "c.go@fake-1.s3.t512" {
 		t.Errorf("a.go recorded under %q", got)
@@ -107,7 +107,7 @@ func TestARegisteredChunkerCutsItsFiles(t *testing.T) {
 	if got := e.embedsOf("a.go"); !slices.Equal(got, []string{"signature func A() {", "signature func B() {"}) {
 		t.Errorf("embeds %q", got)
 	}
-	community := newEnv(t, Options{Match: goAndMarkdown})
+	community := newEnv(t, options{Match: goAndMarkdown})
 	community.put("a.go", goSrc)
 	// unregistered, a.go is read as Markdown: its relations are read too (".r1")
 	if got := community.indexerOf("a.go"); got != "c"+ChunkerVersion+".s3.t512.r1" {
@@ -122,11 +122,11 @@ func TestARegisteredChunkerCutsItsFiles(t *testing.T) {
 // and no other (ADR 0216 §1.5).
 func TestAChunkerVersionReachesOnlyItsFiles(t *testing.T) {
 	c := &funcChunker{version: "fake-1"}
-	e := newEnv(t, Options{Match: goAndMarkdown, Registrations: registered(t, c)})
+	e := newEnv(t, options{Match: goAndMarkdown, Registrations: registered(t, c)})
 	e.put("a.go", goSrc, "n.md", "# N\n\nnotes\n")
 	md := e.indexerOf("n.md")
 	c2 := &funcChunker{version: "fake-2"}
-	e.open(Options{Match: goAndMarkdown, Registrations: registered(t, c2)})
+	e.open(options{Match: goAndMarkdown, Registrations: registered(t, c2)})
 	e.eventually("a.go re-cut under fake-2", func() bool { return e.indexerOf("a.go") == "c.go@fake-2.s3.t512" })
 	e.indexedAt("a.go")
 	if c2.cuts.Load() != 1 {
@@ -143,7 +143,7 @@ func TestAChunkerVersionReachesOnlyItsFiles(t *testing.T) {
 // TestAPanickingChunkerFailsItsDocument: a registered chunker's panic is that document's error;
 // the indexer keeps indexing.
 func TestAPanickingChunkerFailsItsDocument(t *testing.T) {
-	e := newEnv(t, Options{Match: goAndMarkdown, Registrations: registered(t, &funcChunker{version: "fake-1", panicOn: "boom"})})
+	e := newEnv(t, options{Match: goAndMarkdown, Registrations: registered(t, &funcChunker{version: "fake-1", panicOn: "boom"})})
 	e.write("bad.go", "func Bad() {\n\tboom()\n}\n")
 	e.ix.Touch("bad.go")
 	e.eventually("bad.go failing", func() bool {
@@ -176,13 +176,13 @@ func TestAVectorIsMadeOfWhatItsHashNames(t *testing.T) {
 	reg := registered(t, &funcChunker{version: "fake-1"})
 	held := newFake("m", "a")
 	held.hold("signature")
-	e := newEnv(t, Options{Match: goAndMarkdown, Registrations: reg, Provider: held})
+	e := newEnv(t, options{Match: goAndMarkdown, Registrations: reg, Provider: held})
 	e.put("a.go", goSrc)
 	e.eventually("the embedder asked", func() bool { return len(held.texts()) > 0 })
 	// 3. stopped while the embedder holds the texts: nothing was stored, and a reopen sends them
 	// again from the rows
 	p := newFake("m", "a")
-	e.open(Options{Match: goAndMarkdown, Registrations: reg, Provider: p})
+	e.open(options{Match: goAndMarkdown, Registrations: reg, Provider: p})
 	e.ready()
 	// 1. exactly the embed texts, and nothing else
 	if got := p.texts(); !slices.Equal(got, []string{"signature func A() {", "signature func B() {"}) {
@@ -190,7 +190,7 @@ func TestAVectorIsMadeOfWhatItsHashNames(t *testing.T) {
 	}
 	// 2. a restart over unchanged files makes no call
 	p2 := newFake("m", "a")
-	e.open(Options{Match: goAndMarkdown, Registrations: reg, Provider: p2})
+	e.open(options{Match: goAndMarkdown, Registrations: reg, Provider: p2})
 	e.ready()
 	e.atHead()
 	if got := p2.texts(); len(got) != 0 {

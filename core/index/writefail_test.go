@@ -4,10 +4,15 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/yongjohnlee80/golib/search"
+	"github.com/yongjohnlee80/golib/search/chunk"
+	"github.com/yongjohnlee80/golib/vfs"
+
+	"github.com/yongjohnlee80/autodoc/core/schema"
+	"github.com/yongjohnlee80/autodoc/core/store"
 )
 
 // failWrites makes every op (INSERT, UPDATE or DELETE) on table fail, as a full disk or a
@@ -26,14 +31,29 @@ func (e *env) renamed(table string) (undo func()) {
 	return func() { e.exec(fmt.Sprintf(`ALTER TABLE "%s_aside" RENAME TO "%s"`, table, table)) }
 }
 
+// countRefusedCommits counts the commits an injected failure (failWrites) refuses, so a test waits
+// for the failure to be met instead of sleeping past it. Called before the test's env is made: its
+// reset runs after the env's cleanup has stopped the indexer.
+func countRefusedCommits(t *testing.T) *atomic.Int64 {
+	t.Helper()
+	var n atomic.Int64
+	commitFailed = func(err error) {
+		if strings.Contains(err.Error(), "injected failure") {
+			n.Add(1)
+		}
+	}
+	t.Cleanup(func() { commitFailed = nil })
+	return &n
+}
+
 // TestAFailedCommitWritesNothingAndIsRetried: when the writer's transaction fails (any table's
 // write refused), nothing of the batch is written, and its jobs run again: once the failure lifts,
 // every change lands.
 func TestAFailedCommitWritesNothingAndIsRetried(t *testing.T) {
-	e := newEnv(t, Options{})
+	failed := countRefusedCommits(t)
+	e := newEnv(t, options{})
 	e.put("keep.md", "---\ntags: [old]\n---\n# Keep\n\nfirst words [[other]]\n", "gone.md", "to be removed\n")
 	version := func(p string) string { v, _, _ := e.store.Version(context.Background(), p); return string(v) }
-	settle := func() { time.Sleep(150 * time.Millisecond) } // several batches try and fail
 	for _, c := range []struct {
 		name, table, op string
 		act             func()
@@ -78,8 +98,9 @@ func TestAFailedCommitWritesNothingAndIsRetried(t *testing.T) {
 			func() { e.eventually("gone.md gone", func() bool { return version("gone.md") == "" }) }},
 	} {
 		undo := e.failWrites(c.table, c.op)
+		before := failed.Load()
 		c.act()
-		settle()
+		e.eventually(c.name+": a commit refused", func() bool { return failed.Load() > before })
 		if !c.unchanged() {
 			undo()
 			t.Fatalf("%s: a failed commit wrote part of its batch", c.name)
@@ -92,11 +113,13 @@ func TestAFailedCommitWritesNothingAndIsRetried(t *testing.T) {
 // TestAFailedVectorCommitIsRetried: vectors whose commit fails are not stored, and the document
 // stays not ready; once the failure lifts, the worker embeds again and the document becomes ready.
 func TestAFailedVectorCommitIsRetried(t *testing.T) {
+	failed := countRefusedCommits(t)
 	p := newFake("m", "a")
-	e := newEnv(t, Options{Provider: p})
+	e := newEnv(t, options{Provider: p})
 	e.put("a.md", "zebra plains\n")
 	e.ready()
 	undo := e.failWrites("embedding", "INSERT")
+	before := failed.Load()
 	e.put("b.md", "hippo river\n")
 	e.eventually("b.md's text asked for", func() bool {
 		for _, s := range p.texts() {
@@ -106,7 +129,7 @@ func TestAFailedVectorCommitIsRetried(t *testing.T) {
 		}
 		return false
 	})
-	time.Sleep(100 * time.Millisecond)
+	e.eventually("b.md's vectors refused", func() bool { return failed.Load() > before })
 	var ready int
 	_ = scanOne(context.Background(), e.raw, &ready, "SELECT semantic_ready FROM document WHERE path = 'b.md'")
 	if ready != 0 {
@@ -121,7 +144,7 @@ func TestAFailedVectorCommitIsRetried(t *testing.T) {
 func TestTheStatusAndTheViewFailAsThemselves(t *testing.T) {
 	ctx := context.Background()
 	p := newFake("m", "a")
-	e := newEnv(t, Options{Provider: p})
+	e := newEnv(t, options{Provider: p})
 	e.put("a.md", "zebra plains\n")
 	e.ready()
 	e.atHead()
@@ -157,12 +180,185 @@ func TestTheStatusAndTheViewFailAsThemselves(t *testing.T) {
 // TestASearchFailsWhenItsSettingsCannotBeRead: the workspace's retrieval settings are a read of
 // their own; its failing fails the search, rather than answering as if nothing were set.
 func TestASearchFailsWhenItsSettingsCannotBeRead(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("a.md", "# A\n\nkestrel\n")
 	undo := e.renamed("workspace")
 	_, err := e.store.Search(context.Background(), "kestrel", QueryOpts{Limit: 5, Mode: ModeLexical})
 	undo()
 	if err == nil {
 		t.Error("a search with the workspace table gone answered")
+	}
+}
+
+// TestASweepOfOrphansFailsAsItsStatements: each read and write a sweep of orphaned vectors makes
+// (the models, the vectors, the chunks that keep them, the delete) fails as an error, and the
+// vectors stay; once the failure lifts, the sweep deletes them. A sweep asked before the indexer
+// is ready, its request gone, returns that.
+func TestASweepOfOrphansFailsAsItsStatements(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, options{Provider: newFake("m", "a")})
+	e.put("a.md", "zebra plains\n")
+	e.ready()
+	e.exec("DELETE FROM chunk") // every vector an orphan; the indexer, idle, writes nothing more
+	vectors := func() (n int) {
+		t.Helper()
+		if err := scanOne(ctx, e.raw, &n, "SELECT count(*) FROM embedding"); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	before := vectors()
+	if before == 0 {
+		t.Fatal("no vectors to sweep")
+	}
+	for _, fail := range []struct {
+		what string
+		undo func() func()
+	}{
+		{"the models unreadable", func() func() { return e.renamed("model") }},
+		{"the vectors unreadable", func() func() { return e.renamed("embedding") }},
+		{"the chunks unreadable", func() func() { return e.renamed("chunk") }},
+		{"the delete refused", func() func() { return e.failWrites("embedding", "DELETE") }},
+	} {
+		undo := fail.undo()
+		if _, err := SweepOrphansStore(ctx, e.db, e.ws); err == nil {
+			t.Errorf("%s: the sweep succeeded", fail.what)
+		}
+		undo()
+		if n := vectors(); n != before {
+			t.Errorf("%s: %d vectors left of %d", fail.what, n, before)
+		}
+	}
+	// the delete path's own check, in the transaction that deleted the chunks, and the vector
+	// write's: a chunk table it cannot read is an error
+	undo := e.renamed("chunk")
+	err := e.db.Write(ctx, func(tx *store.Tx) error {
+		if _, err := e.store.dropOrphans(tx, [][]byte{{1}}); err == nil {
+			t.Error("dropOrphans read no chunks and said nothing")
+		}
+		if _, err := e.store.withChunks(tx, []vecItem{{textHash: []byte{1}}}); err == nil {
+			t.Error("withChunks read no chunks and said nothing")
+		}
+		return nil
+	})
+	undo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, err := SweepOrphansStore(ctx, e.db, e.ws); err != nil || n != before || vectors() != 0 {
+		t.Fatalf("the sweep after: %d, %v; %d vectors left; want %d deleted", n, err, vectors(), before)
+	}
+	gone, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := newIndexer(e.store, e.fsys, options{}).SweepOrphans(gone); err == nil {
+		t.Error("a sweep of an indexer never ready, its request gone, returned no error")
+	}
+}
+
+// TestAFrontmatterWriteFailsAsItsStatements: replacing a document's facets and diagnostics fails
+// as whichever of its deletes and inserts is refused.
+func TestAFrontmatterWriteFailsAsItsStatements(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, options{})
+	e.put("a.md", "zebra\n")
+	e.stop() // the store's own writes from here on: the indexer is done with a.md
+	db, err := store.Open(ctx, e.db.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	s := NewStore(db, e.ws)
+	r := schema.Result{Facets: []schema.Facet{{Field: "status", Value: "active"}},
+		Diagnostics: []schema.Diagnostic{{Field: "type", Line: 2, Rule: "required", Message: "type is required"}}}
+	var docID int64
+	if err := scanOne(ctx, e.raw, &docID, "SELECT id FROM document WHERE path = 'a.md'"); err != nil {
+		t.Fatal(err)
+	}
+	replace := func() error {
+		return db.Write(ctx, func(tx *store.Tx) error { return s.replaceFrontmatter(tx, docID, r) })
+	}
+	if err := replace(); err != nil { // the instrument: unrefused, the replacement lands
+		t.Fatal(err)
+	}
+	for _, op := range []struct{ table, op string }{
+		{"doc_facet", "DELETE"}, {"doc_diagnostic", "DELETE"}, {"doc_facet", "INSERT"}, {"doc_diagnostic", "INSERT"},
+	} {
+		undo := e.failWrites(op.table, op.op)
+		if err := replace(); err == nil {
+			t.Errorf("%s on %s refused, and the replacement succeeded", op.op, op.table)
+		}
+		undo()
+	}
+}
+
+// TestALinkWriteFailsAsItsStatements: a document's names, links and link keys, and the
+// re-resolution of another document's dangling link to it, are written in its put; whichever of
+// those statements is refused, or whichever of their tables cannot be read, fails the commit, and
+// the same put then lands.
+func TestALinkWriteFailsAsItsStatements(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, options{})
+	e.stop() // the store's own writes from here on
+	db, err := store.Open(ctx, e.db.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	w := BufferedWriter(NewStore(db, e.ws))
+	put := func(d Doc) error {
+		b, err := w.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		if err := b.Put(ctx, d); err != nil {
+			return err
+		}
+		return b.Commit()
+	}
+	doc := func(path, version string, links ...DocLink) Doc {
+		c := search.Chunk{Breadcrumb: "T", Body: "text of " + path}
+		th := c.TextHash()
+		return Doc{Path: path, Version: vfs.Version(version), Indexer: "test",
+			Meta:   chunk.Meta{Title: "T", Aliases: []string{"another name of " + path}},
+			Chunks: []DocChunk{{Chunk: c, Hash: []byte(path + version), TextHash: th[:], Kind: ChunkSection}},
+			Links:  links}
+	}
+	toC := DocLink{Raw: "[[c]]", Name: "c", Kind: LinkWikilink}
+	supersedes := DocLink{Raw: "supersedes: b", Name: "b", Kind: "supersedes", Keys: []string{"b", "b.md"}}
+	if err := put(doc("b.md", "1", toC)); err != nil { // the instrument: unrefused, a put lands
+		t.Fatal(err)
+	}
+	var dangling int
+	if err := scanOne(ctx, e.raw, &dangling, "SELECT count(*) FROM link WHERE dst_doc IS NULL"); err != nil || dangling != 1 {
+		t.Fatalf("b.md's link to c: %d dangling, %v; want 1", dangling, err)
+	}
+	refuse := func(name string, fail func() func(), d Doc) {
+		t.Helper()
+		undo := fail()
+		if err := put(d); err == nil {
+			t.Errorf("%s: the put landed", name)
+		}
+		undo()
+	}
+	newC := doc("c.md", "1", supersedes)
+	for _, c := range []struct{ table, op string }{{"doc_name", "INSERT"}, {"link", "INSERT"}, {"link_key", "INSERT"}, {"link", "UPDATE"}} {
+		refuse(c.op+" on "+c.table, func() func() { return e.failWrites(c.table, c.op) }, newC)
+	}
+	for _, table := range []string{"doc_name", "link", "link_key"} {
+		refuse(table+" unreadable", func() func() { return e.renamed(table) }, newC)
+	}
+	if err := put(newC); err != nil {
+		t.Fatal(err)
+	}
+	if err := scanOne(ctx, e.raw, &dangling, "SELECT count(*) FROM link WHERE dst_doc IS NULL"); err != nil || dangling != 0 {
+		t.Fatalf("b.md's link to c after c.md landed: %d dangling, %v; want 0", dangling, err)
+	}
+	// a put over what c.md keeps deletes its names and links first
+	againC := doc("c.md", "2", supersedes)
+	for _, table := range []string{"doc_name", "link"} {
+		refuse("DELETE on "+table, func() func() { return e.failWrites(table, "DELETE") }, againC)
+	}
+	if err := put(againC); err != nil {
+		t.Fatal(err)
 	}
 }

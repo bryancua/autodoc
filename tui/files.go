@@ -347,7 +347,7 @@ func (h *Host) readPage() {
 		h.file.derived = kind.Label(p)
 	}
 	h.core.SetReadOnly(h.file.derived != "")
-	k := h.kinds.Of(p, h.textExtensions()) // the daemon's registrations: it is the one indexing
+	k := h.resolver().Of(p) // the daemon's registrations: it is the one indexing
 	// Tab walks a Markdown table's cells (the draft is Markdown too)
 	h.core.SetTableEditing(k == kind.Markdown || !h.file.open)
 	// a raw HTML file's Rendered view is its page (documentFor), where there is one: the GUI's
@@ -369,17 +369,26 @@ func (h *Host) readPage() {
 			return
 		}
 	}
-	switch k {
-	case kind.Text, kind.Registered:
-		h.set("App.syntaxDefinition", "Plain text")
-	case kind.YAML:
-		h.set("App.syntaxDefinition", "YAML")
-	default:
-		h.set("App.syntaxDefinition", "Markdown")
-	}
+	h.set("App.syntaxDefinition", syntaxOf.Of(k))
 	h.setDirty(h.file.dirty) // the status line's title carries the badge
 	h.validateSoon()
 	h.refreshOutline() // and the frame's
+}
+
+// syntaxOf is the editor's syntax for a kind, where no source language claims the file's name
+// (kind.Table: a kind added is a kind given its syntax).
+var syntaxOf = kind.NewTable(map[kind.Kind]string{
+	kind.Markdown:   "Markdown",
+	kind.Derived:    "Markdown",
+	kind.YAML:       "YAML",
+	kind.Text:       "Plain text",
+	kind.Registered: "Plain text",
+})
+
+// resolver is how the host reads a path's kind: the daemon's registrations, as last known, and the
+// workspace's text extensions.
+func (h *Host) resolver() kind.Resolver {
+	return kind.Resolver{Registrations: h.kinds, Text: h.textExtensions}
 }
 
 // setRendered gives the editor its Rendered view, or withholds it. The view draws Markdown, so

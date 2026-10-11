@@ -163,7 +163,7 @@ func (e *env) activeModel() string {
 // the note that shares some of them, and a hit both find carries both.
 func TestSemanticFindsWhatLexicalCannot(t *testing.T) {
 	p := newFake("m", "a")
-	e := newEnv(t, Options{Provider: p})
+	e := newEnv(t, options{Provider: p})
 	// the nearer note sorts after the other by path: only the vectors put it first
 	e.put("z.md", "zebra giraffe savanna\n", "b.md", "hippo river mud\n")
 	e.ready()
@@ -200,7 +200,7 @@ func TestSemanticFindsWhatLexicalCannot(t *testing.T) {
 // lexically; the search says "partial". Once the chunk has its vector, it answers semantically.
 func TestHalfEmbeddedDocumentAnswersLexically(t *testing.T) {
 	p := newFake("m", "a")
-	e := newEnv(t, Options{Provider: p})
+	e := newEnv(t, options{Provider: p})
 	e.put("a.md", "zebra plains\n")
 	e.ready()
 	p.hold("glacier")
@@ -298,7 +298,7 @@ func checkPartial(t *testing.T, e *env, cID int64) {
 // TestEditClearsReadiness: a new generation with an unembedded chunk makes its document wait again.
 func TestEditClearsReadiness(t *testing.T) {
 	p := newFake("m", "a")
-	e := newEnv(t, Options{Provider: p})
+	e := newEnv(t, options{Provider: p})
 	e.put("a.md", "zebra\n")
 	e.ready()
 	p.hold("volcano")
@@ -319,7 +319,7 @@ func TestEditClearsReadiness(t *testing.T) {
 // never a search over vectors of another shape: words answer, and the error is the constant one.
 func TestAQueryVectorOfTheWrongSizeIsAnEmbedFailure(t *testing.T) {
 	p := newFake("m", "a")
-	e := newEnv(t, Options{Provider: p})
+	e := newEnv(t, options{Provider: p})
 	e.put("a.md", "zebra stripes\n")
 	e.ready()
 	p.mu.Lock()
@@ -338,7 +338,7 @@ func TestAQueryVectorOfTheWrongSizeIsAnEmbedFailure(t *testing.T) {
 // SemanticError and its constant message, and fails with ErrEmbedFailed in semantic mode.
 func TestQueryEmbedFailure(t *testing.T) {
 	p := newFake("m", "a")
-	e := newEnv(t, Options{Provider: p})
+	e := newEnv(t, options{Provider: p})
 	e.put("a.md", "zebra stripes\n")
 	e.ready()
 	p.fail("stripes")
@@ -365,7 +365,7 @@ func TestQueryEmbedFailure(t *testing.T) {
 // same text share one, and a document that moves its sections is not embedded again.
 func TestIdenticalTextIsEmbeddedOnce(t *testing.T) {
 	p := newFake("m", "a")
-	e := newEnv(t, Options{Provider: p})
+	e := newEnv(t, options{Provider: p})
 	e.put("a.md", "# S\n\nshared words here\n", "b.md", "# S\n\nshared words here\n")
 	e.ready()
 	count := func() int {
@@ -398,7 +398,7 @@ func TestIdenticalTextIsEmbeddedOnce(t *testing.T) {
 // its code at the current watermark: candidates are validated in the query's transaction.
 func TestDeadChunkNeverASemanticHit(t *testing.T) {
 	p := newFake("m", "a")
-	e := newEnv(t, Options{Provider: p, noGC: true})
+	e := newEnv(t, options{Provider: p, noGC: true})
 	e.put("a.md", "# A\n\nplover marsh\n")
 	e.ready()
 	old := e.atHead()
@@ -425,7 +425,7 @@ func TestDeadChunkNeverASemanticHit(t *testing.T) {
 // finds none matching its transaction scans SQL instead, with the same answer.
 func TestSnapshotAndFallbackAgree(t *testing.T) {
 	p := newFake("m", "a")
-	e := newEnv(t, Options{Provider: p, noGC: true})
+	e := newEnv(t, options{Provider: p, noGC: true})
 	e.put("a.md", "zebra giraffe\n", "b.md", "zebra hippo\n", "c.md", "lion\n")
 	e.ready()
 	e.put("c.md", "lion zebra\n")
@@ -465,7 +465,7 @@ func TestSnapshotAndFallbackAgree(t *testing.T) {
 // model covers every chunk, and queries racing it never fail.
 func TestAModelSwitchAnswersByWords(t *testing.T) {
 	a := newFake("m", "a")
-	e := newEnv(t, Options{Provider: a})
+	e := newEnv(t, options{Provider: a})
 	e.put("x.md", "zebra giraffe\n", "y.md", "hippo river\n", "z.md", "glacier ice\n")
 	e.ready()
 	fpA := a.Model().Fingerprint()
@@ -479,7 +479,7 @@ func TestAModelSwitchAnswersByWords(t *testing.T) {
 	b := newFake("m2", "b")
 	b.hold("glacier")
 	e.stop = nil
-	e.open(Options{Provider: b})
+	e.open(options{Provider: b})
 	e.eventually("b filling", func() bool { return len(b.texts()) > 0 })
 	time.Sleep(50 * time.Millisecond)
 	// asking the writer whether b covers every chunk, while it covers none, flips nothing
@@ -602,7 +602,7 @@ func TestAModelSwitchAnswersByWords(t *testing.T) {
 func TestRejectedTextDoesNotBlockOthers(t *testing.T) {
 	p := newFake("m", "a")
 	p.refuse = "oversized"
-	e := newEnv(t, Options{Provider: p})
+	e := newEnv(t, options{Provider: p})
 	e.put("a.md", "zebra\n", "b.md", "giraffe\n", "bad.md", "# Bad\n\noversized list\n\n# Fine\n\nhippo\n", "c.md", "lion\n")
 	e.eventually("the others ready", func() bool {
 		var ready int
@@ -659,7 +659,7 @@ func TestRejectedTextDoesNotBlockOthers(t *testing.T) {
 
 func TestTargetBatchPreservesOfflineSnapshot(t *testing.T) {
 	a := newFake("m", "a")
-	e := newEnv(t, Options{Provider: a})
+	e := newEnv(t, options{Provider: a})
 	e.put("a.md", "zebra\n", "b.md", "hippo\n")
 	e.ready()
 	e.stop()
@@ -674,7 +674,7 @@ func TestTargetBatchPreservesOfflineSnapshot(t *testing.T) {
 		}
 	}()
 	e.stop = nil
-	e.open(Options{Provider: b})
+	e.open(options{Provider: b})
 	before := e.atHead()
 	if err := e.ix.handVectors(context.Background(), vecBatch{fp: b.Model().Fingerprint(),
 		items: []vecItem{{textHash: []byte("not-an-alive-text"), vec: make([]float32, 64)}}}); err != nil {
@@ -719,7 +719,7 @@ func (e *env) ready2(path string) {
 // long one that repeats it among much else.
 func TestSemanticRanksByCosine(t *testing.T) {
 	p := newFake("m", "a")
-	e := newEnv(t, Options{Provider: p})
+	e := newEnv(t, options{Provider: p})
 	e.put("a.md", "zebra zebra hippo lion tiger bear wolf fox owl crow hawk eagle\n", "b.md", "zebra\n")
 	e.ready()
 	eq(t, "order", via(e.query("zebra", QueryOpts{Mode: ModeSemantic})), []string{"b.md semantic", "a.md semantic"})
@@ -730,7 +730,7 @@ func TestSemanticRanksByCosine(t *testing.T) {
 // back to scanning SQL.
 func TestEveryCommitPublishes(t *testing.T) {
 	p := newFake("m", "a")
-	e := newEnv(t, Options{Provider: p})
+	e := newEnv(t, options{Provider: p})
 	e.put("a.md", "zebra\n\n# X\n\nold words\n", "b.md", "lion\n")
 	e.ready()
 	e.atHead()
@@ -765,14 +765,14 @@ func (e *env) embStatus() EmbeddingStatus {
 // model is reclaimed, and a late batch must not leave its vectors behind (ADR 1791284787).
 func TestLateOldModelBatchKeepsTheFlip(t *testing.T) {
 	a := newFake("m", "a")
-	e := newEnv(t, Options{Provider: a})
+	e := newEnv(t, options{Provider: a})
 	e.put("x.md", "zebra\n", "y.md", "hippo\n")
 	e.ready()
 	fpA := a.Model().Fingerprint()
 	e.stop()
 	b := newFake("m2", "b")
 	e.stop = nil
-	e.open(Options{Provider: b})
+	e.open(options{Provider: b})
 	fpB := b.Model().Fingerprint()
 	e.eventually("the flip to b", func() bool { return e.activeModel() == fpB })
 	for _, vb := range []vecBatch{{fp: fpA}, {fp: fpA, items: []vecItem{{textHash: []byte("late"), vec: make([]float32, 64)}}}} {
@@ -795,14 +795,14 @@ func TestLateOldModelBatchKeepsTheFlip(t *testing.T) {
 // semantic search offline. After the flip, the incomplete document stays lexical and is reported.
 func TestRefusedTargetTextShowsInStatus(t *testing.T) {
 	a := newFake("m", "a")
-	e := newEnv(t, Options{Provider: a})
+	e := newEnv(t, options{Provider: a})
 	e.put("x.md", "zebra\n", "y.md", "oversized hippo\n")
 	e.ready()
 	e.stop()
 	b := newFake("m2", "b")
 	b.refuse = "oversized"
 	e.stop = nil
-	e.open(Options{Provider: b})
+	e.open(options{Provider: b})
 	e.eventually("the flip despite refusal", func() bool { return e.activeModel() == b.Model().Fingerprint() })
 	es := e.embStatus()
 	if es.Model != b.Model().Fingerprint() || es.Target != "" || es.Pending != 1 || es.Refused != 1 ||

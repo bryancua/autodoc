@@ -1,12 +1,17 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
+	"sync"
 	"testing"
+
+	"github.com/yongjohnlee80/golib/logger"
 
 	"github.com/yongjohnlee80/autodoc/core/config"
 	"github.com/yongjohnlee80/autodoc/core/index"
@@ -17,7 +22,7 @@ import (
 func crumbOf(t *testing.T, m *Workspaces, q string) string {
 	t.Helper()
 	w, _ := m.Get("kb")
-	r, err := w.Index.Search(context.Background(), q, index.QueryOpts{Mode: index.ModeLexical})
+	r, err := w.Index().Search(context.Background(), q, index.QueryOpts{Mode: index.ModeLexical})
 	if err != nil || len(r.Hits) == 0 {
 		return ""
 	}
@@ -56,7 +61,7 @@ func TestTextExtensionsChangeHowFilesAreRead(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "bin.log"), []byte{0xff, 0xfe, 0}, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := w.Docs.Read(context.Background(), "bin.log"); err == nil {
+	if _, err := w.Docs().Read(context.Background(), "bin.log"); err == nil {
 		t.Fatal("a .log that is not UTF-8 was read as text")
 	}
 
@@ -71,4 +76,52 @@ func TestTextExtensionsChangeHowFilesAreRead(t *testing.T) {
 			t.Errorf("%q: %v, want a refusal", bad, err)
 		}
 	}
+}
+
+// A change of extensions whose indexed paths cannot be listed (the store unreadable; here, the
+// request gone) reads nothing again and says why in the log; the workspace still has the new list.
+func TestTextExtensionsSayWhenTheyCannotListTheIndex(t *testing.T) {
+	log := &lockedLog{}
+	m, _ := openOn(t, filepath.Join(t.TempDir(), "autodoc.db"), Options{Log: logger.New(logger.WithWriter(log))})
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "app.log"), []byte("# Boot\nkestrel started\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Add(context.Background(), config.Workspace{Name: "kb", Root: root, Include: []string{"**/*.log"}}); err != nil {
+		t.Fatal(err)
+	}
+	indexed(t, m, "kb", 1)
+	m.mu.Lock()
+	s := m.served["kb"]
+	m.mu.Unlock()
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	m.applyTextExtensions(gone, s, []string{".log"})
+	if !strings.Contains(log.String(), "index.reindex.failed") {
+		t.Errorf("the log does not say the reindex failed:\n%s", log.String())
+	}
+	if got := m.textExtensionsFor(s.id).load(); !reflect.DeepEqual(got, []string{".log"}) {
+		t.Errorf("served = %v; want the new list", got)
+	}
+	if got := crumbOf(t, m, "kestrel"); got != "Boot" {
+		t.Errorf("app.log was read again: crumb %q", got)
+	}
+}
+
+// lockedLog is a log the daemon's goroutines write while a test reads it.
+type lockedLog struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *lockedLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
 }

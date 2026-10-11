@@ -145,16 +145,27 @@ func converges(t *testing.T, m *model, fsys vfs.FS, what string) {
 	t.Fatalf("%s: the index did not converge\n got  %v\n want %v", what, got, want)
 }
 
-var fast = follow.Options{PollInterval: 20 * time.Millisecond, MinBackoff: 10 * time.Millisecond, MaxBackoff: 80 * time.Millisecond, Match: match}
+// fast are the tests' follower settings: a quick poll and quick retries.
+const (
+	fastPoll = 20 * time.Millisecond
+	fastMin  = 10 * time.Millisecond
+)
+
+var fast = []follow.Option{follow.WithPollInterval(fastPoll), follow.WithBackoff(fastMin, 80*time.Millisecond), follow.WithMatch(match)}
+
+// fastAnd is fast with more settings, which win.
+func fastAnd(more ...follow.Option) []follow.Option {
+	return append(append([]follow.Option{}, fast...), more...)
+}
 
 func start(t *testing.T, fsys vfs.FS, m *model) *follow.Follower {
 	t.Helper()
 	return startWith(t, fsys, m, fast)
 }
 
-func startWith(t *testing.T, fsys vfs.FS, m *model, opts follow.Options) *follow.Follower {
+func startWith(t *testing.T, fsys vfs.FS, m *model, opts []follow.Option) *follow.Follower {
 	t.Helper()
-	f := follow.New(fsys, m, m, opts)
+	f := follow.New(fsys, m, m, opts...)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- f.Run(ctx) }()
@@ -452,11 +463,9 @@ func TestUnreadableExcludedDirectoryIsNotRetried(t *testing.T) {
 	memWrite(t, s, "a.md", "a")
 	s.setFail(".git", true)
 	m := newModel(s)
-	opts := fast
-	opts.Excluded = workspace.NewMatcher([]string{"**/*.md"}, []string{".git/**"}).Excluded
-	f := startWith(t, s, m, opts)
+	f := startWith(t, s, m, fastAnd(follow.WithExcluded(workspace.NewMatcher([]string{"**/*.md"}, []string{".git/**"}).Excluded)))
 	converges(t, m, s.FS, "the start reconcile")
-	time.Sleep(5 * fast.MinBackoff)
+	time.Sleep(5 * fastMin)
 	if st := f.Status(); len(st.Retrying) != 0 {
 		t.Errorf("retrying %v: an excluded directory is not the workspace's", st.Retrying)
 	}
@@ -532,9 +541,7 @@ func TestDegradedStillConverges(t *testing.T) {
 	ff.set(errNoWatch, "a")
 	// a setup retry far slower than the poll interval, so only degraded mode's own full reconcile can
 	// find the new file in time
-	slowRetry := fast
-	slowRetry.MinBackoff, slowRetry.MaxBackoff = 2*time.Second, 2*time.Second
-	f := startWith(t, ff, m, slowRetry)
+	f := startWith(t, ff, m, fastAnd(follow.WithBackoff(2*time.Second, 2*time.Second)))
 	eventually(t, "degraded", func() bool { return f.Status().Following == follow.Degraded })
 	if st := f.Status(); st.Err == "" {
 		t.Error("degraded without the reason")
@@ -570,7 +577,7 @@ func TestUnreadableRootAtStartRecovers(t *testing.T) {
 	ff.set(errNoWatch, ".")
 	f := start(t, ff, m)
 	eventually(t, "degraded", func() bool { return f.Status().Following == follow.Degraded })
-	time.Sleep(5 * fast.PollInterval)
+	time.Sleep(5 * fastPoll)
 	if len(m.snapshot()) != 2 {
 		t.Fatalf("an unreadable root changed the index: %v", m.snapshot())
 	}
@@ -646,8 +653,7 @@ func TestRescanReconcilesTheRoot(t *testing.T) {
 			memWrite(t, ff, "a.md", "a")
 			memWrite(t, ff, "sub/b.md", "b")
 			m := newModel(ff)
-			opts := fast
-			opts.PollInterval, opts.MinBackoff, opts.MaxBackoff = time.Hour, time.Hour, time.Hour
+			opts := fastAnd(follow.WithPollInterval(time.Hour), follow.WithBackoff(time.Hour, time.Hour))
 			want := follow.Watching
 			if degraded {
 				ff.set(errNoWatch, "sub")
@@ -687,9 +693,7 @@ func TestExcludedDirectoriesAreNeitherReadNorWatched(t *testing.T) {
 		return false
 	}
 	m := newModel(s)
-	opts := fast
-	opts.Excluded = excluded
-	f := startWith(t, s, m, opts)
+	f := startWith(t, s, m, fastAnd(follow.WithExcluded(excluded)))
 	eventually(t, "the watch", func() bool { return f.Status().Following == follow.Watching })
 	eventually(t, "the notes indexed", func() bool {
 		snap := m.snapshot()

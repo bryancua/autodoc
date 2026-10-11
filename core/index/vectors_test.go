@@ -109,7 +109,7 @@ func orphanBatchOf(t *testing.T, n uint64) {
 // switch's target alike. A text another document still has keeps its vectors.
 func TestAReplacedTextsVectorsGoAtGC(t *testing.T) {
 	a := newFake("m", "a")
-	e := newEnv(t, Options{Provider: a})
+	e := newEnv(t, options{Provider: a})
 	// one heading and body: one breadcrumb and text, so one text hash
 	e.put("x.md", "# Same\n\nzebra\n", "s.md", "# Same\n\nzebra\n", "y.md", "hippo\n")
 	e.ready()
@@ -141,7 +141,7 @@ func TestAReplacedTextsVectorsGoAtGC(t *testing.T) {
 // its vector stays with it.
 func TestADeadChunksVectorStaysUntilGC(t *testing.T) {
 	a := newFake("m", "a")
-	e := newEnv(t, Options{Provider: a, noGC: true})
+	e := newEnv(t, options{Provider: a, noGC: true})
 	e.put("y.md", "hippo\n")
 	e.ready()
 	hippo := e.textsOf("y.md")[0]
@@ -156,7 +156,7 @@ func TestADeadChunksVectorStaysUntilGC(t *testing.T) {
 // vectors in its commit (gc is off: nothing else could), and keeps a text another document has.
 func TestARemovedDocumentsVectorsGoWithIt(t *testing.T) {
 	a := newFake("m", "a")
-	e := newEnv(t, Options{Provider: a, noGC: true})
+	e := newEnv(t, options{Provider: a, noGC: true})
 	e.put("x.md", "# Same\n\nzebra\n", "s.md", "# Same\n\nzebra\n", "y.md", "hippo\n")
 	e.ready()
 	fpA := a.Model().Fingerprint()
@@ -177,7 +177,7 @@ func TestARemovedDocumentsVectorsGoWithIt(t *testing.T) {
 // text a chunk has, and none for a text no chunk has.
 func TestALateVectorForAReplacedTextIsNotStored(t *testing.T) {
 	a := newFake("m", "a")
-	e := newEnv(t, Options{Provider: a})
+	e := newEnv(t, options{Provider: a})
 	e.put("x.md", "zebra\n")
 	e.ready()
 	fpA := a.Model().Fingerprint()
@@ -201,7 +201,7 @@ func TestALateVectorForAReplacedTextIsNotStored(t *testing.T) {
 func TestTheStartPassSweepsOrphansInBatches(t *testing.T) {
 	orphanBatchOf(t, 1000)
 	a := newFake("m", "a")
-	e := newEnv(t, Options{Provider: a})
+	e := newEnv(t, options{Provider: a})
 	e.put("x.md", "zebra\n")
 	e.ready()
 	fpA := a.Model().Fingerprint()
@@ -258,7 +258,7 @@ func TestTheStartPassSweepsOrphansInBatches(t *testing.T) {
 // orphanBatch keys: 2,500 used vectors take three turns, not one scan.
 func TestThePassIsBoundedByTheKeysItExamines(t *testing.T) {
 	orphanBatchOf(t, 1000)
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	w2, err := e.db.AddWorkspace(context.Background(), "other", "/other", nil, nil) // no indexer
 	if err != nil {
 		t.Fatal(err)
@@ -266,7 +266,7 @@ func TestThePassIsBoundedByTheKeysItExamines(t *testing.T) {
 	const fp = "u|used"
 	e.seedModel(w2.ID, fp, 0, 1, 1)
 	e.seedTexts(w2.ID, fp, "used", 2500)
-	s2 := Open(e.db, w2.ID)
+	s2 := NewStore(e.db, w2.ID)
 	turns := 0
 	n, err := s2.sweepOrphans(context.Background(), func(ctx context.Context, fn func(context.Context, *store.Tx) error) error {
 		turns++
@@ -284,7 +284,7 @@ func TestThePassIsBoundedByTheKeysItExamines(t *testing.T) {
 // and stops; the next pass finishes.
 func TestAnInterruptedPassIsFinishedNext(t *testing.T) {
 	orphanBatchOf(t, 1000)
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	const fp = "u|used"
 	e.seedModel(e.ws, fp, 0, 1, 1)
 	for i := 0; i < 2500; i++ {
@@ -306,7 +306,7 @@ func TestAnInterruptedPassIsFinishedNext(t *testing.T) {
 // TestThePassReachesAWorkspaceWithNoIndexer: a stored workspace no indexer runs is swept through the
 // store, keeping what its chunks use.
 func TestThePassReachesAWorkspaceWithNoIndexer(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	w2, err := e.db.AddWorkspace(context.Background(), "other", "/other", nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -330,7 +330,7 @@ func TestThePassReachesAWorkspaceWithNoIndexer(t *testing.T) {
 // chunk's vector goes, still validates and rescores that hit from its own snapshot.
 func TestAQueryHeldAcrossTheDeletionRescoresFromWhatItRead(t *testing.T) {
 	a := newFake("m", "a")
-	e := newEnv(t, Options{Provider: a})
+	e := newEnv(t, options{Provider: a})
 	e.put("x.md", "zebra\n", "y.md", "hippo\n")
 	e.ready()
 	hippo := e.textsOf("y.md")[0]
@@ -377,7 +377,7 @@ func (c *sqlCapture) BeforeExec(_ context.Context, q *dao.QueryInfo) error {
 // statistics, as in every store): referencedTexts (gc, removal, a vector batch, the start pass) and
 // docsWithText (a vector batch's documents).
 func TestTheLookupsUseChunkText(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	ctx := context.Background()
 	for name, run := range map[string]func(*Store, *store.Tx) error{
 		"referencedTexts": func(s *Store, tx *store.Tx) error {
@@ -423,7 +423,7 @@ func TestTheLookupsUseChunkText(t *testing.T) {
 // Some texts have a vector only under another model, which must not count.
 func TestABatchsReadinessLooksUpOnlyItsTexts(t *testing.T) {
 	a := newFake("m", "a")
-	e := newEnv(t, Options{Provider: a})
+	e := newEnv(t, options{Provider: a})
 	words := []string{"zebra", "hippo", "lion", "tiger", "newt", "otter", "heron", "bison"}
 	for _, w := range words {
 		e.put(w+".md", "# "+w+"\n\n"+w+"\n\n## more\n\n"+w+" again\n")
@@ -437,7 +437,7 @@ func TestABatchsReadinessLooksUpOnlyItsTexts(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	s := Open(db, e.ws)
+	s := NewStore(db, e.ws)
 	// lion, otter and bison lose one text's vector under a, which another model has
 	e.exec("INSERT INTO model (workspace_id, fp, provider, name, dims, active, target) VALUES (?, 'other|x', 'fake', 'x', 4, 0, 1)", e.ws)
 	for _, w := range []string{"lion", "otter", "bison"} {
@@ -452,7 +452,7 @@ func TestABatchsReadinessLooksUpOnlyItsTexts(t *testing.T) {
 			if err := s.setReady(tx, docs); err != nil {
 				return err
 			}
-			rows, err := s.sc.Documents(tx).Select(store.DocID, store.DocPath, store.DocSemanticReady)
+			rows, err := s.documents(tx).Select(DocID, DocPath, DocSemanticReady)
 			if err != nil {
 				return err
 			}
@@ -502,7 +502,7 @@ func TestABatchsReadinessLooksUpOnlyItsTexts(t *testing.T) {
 // go with their vectors.
 func TestAFailedVectorDeleteRollsBackItsChunks(t *testing.T) {
 	a := newFake("m", "a")
-	e := newEnv(t, Options{Provider: a})
+	e := newEnv(t, options{Provider: a})
 	e.put("x.md", "zebra\n", "y.md", "hippo\n")
 	e.ready()
 	zebra, hippo := e.textsOf("x.md")[0], e.textsOf("y.md")[0]
@@ -539,7 +539,7 @@ func TestAFailedVectorDeleteRollsBackItsChunks(t *testing.T) {
 // vectors of their texts go with them, in each.
 func TestGCTakesMoreThanOneBatch(t *testing.T) {
 	a := newFake("m", "a")
-	e := newEnv(t, Options{Provider: a})
+	e := newEnv(t, options{Provider: a})
 	var before, after strings.Builder
 	for i := 0; i < 1001; i++ {
 		fmt.Fprintf(&before, "# s%d\n\nold%d\n\n", i, i)
@@ -567,7 +567,7 @@ func TestGCTakesMoreThanOneBatch(t *testing.T) {
 // nothing (the document stays, with its vectors) and runs again once they can be read.
 func TestARemovalWhoseChunksCannotBeReadIsRetried(t *testing.T) {
 	a := newFake("m", "a")
-	e := newEnv(t, Options{Provider: a})
+	e := newEnv(t, options{Provider: a})
 	e.put("x.md", "zebra\n")
 	e.ready()
 	zebra := e.textsOf("x.md")[0]
@@ -591,7 +591,7 @@ func TestARemovalWhoseChunksCannotBeReadIsRetried(t *testing.T) {
 // op, since the op writes the caller's variables (a reclaim's or a sweep's counts and cursor); before,
 // do returned on ctx.Done, and the caller read them under the writer (a race -race caught).
 func TestDoAwaitsAnOpItsWriterTook(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	ctx, cancel := context.WithCancel(context.Background())
 	entered, release := make(chan struct{}), make(chan struct{})
 	wrote := false
@@ -626,7 +626,7 @@ func TestDoAwaitsAnOpItsWriterTook(t *testing.T) {
 // The writer goes on serving. A lock held by another process is waited for in SQLite's busy
 // handler, which no context reaches: that wait is bounded by busy_timeout (5 s), not by the caller.
 func TestACallersCancelReachesItsOp(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	await := func(what string, returned chan error) {
 		t.Helper()
 		select {

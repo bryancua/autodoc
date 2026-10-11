@@ -40,7 +40,7 @@ type env struct {
 	raw dao.DataConn
 }
 
-func newEnv(t testing.TB, opts Options) *env {
+func newEnv(t testing.TB, opts options) *env {
 	t.Helper()
 	e := &env{t: t, fsys: memfs.New(), dir: t.TempDir()}
 	e.fault = &faultFS{FS: e.fsys, fail: map[string]error{}, opens: map[string]int{}}
@@ -113,7 +113,7 @@ func (e *env) job(p string) (ok bool, attempts int, lastErr string) {
 }
 
 // open opens the store and runs an indexer over it, stopping any previous one.
-func (e *env) open(opts Options) {
+func (e *env) open(opts options) {
 	e.t.Helper()
 	if e.stop != nil {
 		e.stop()
@@ -140,14 +140,14 @@ func (e *env) open(opts Options) {
 		e.raw = raw
 		e.t.Cleanup(func() { _ = raw.Close() })
 	}
-	s := Open(db, e.ws)
+	s := NewStore(db, e.ws)
 	if opts.BatchDelay == 0 {
 		opts.BatchDelay = 20 * time.Millisecond
 	}
 	if opts.Match == nil {
 		opts.Match = testMatch
 	}
-	ix := NewIndexer(s, e.fault, opts)
+	ix := newIndexer(s, e.fault, opts)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- ix.Run(ctx) }()
@@ -282,7 +282,7 @@ func sections(n int, edit int, text string) string {
 // TestIndexesThenSkipsUnchanged: a new file is parsed and chunked; touching it again unchanged is
 // skipped by its Version, with no new generation.
 func TestIndexesThenSkipsUnchanged(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.write("a.md", sections(3, -1, ""))
 	e.ix.Touch("a.md")
 	e.indexedAt("a.md")
@@ -302,7 +302,7 @@ func TestIndexesThenSkipsUnchanged(t *testing.T) {
 // TestEditOneSectionWritesOnlyThatSection: of a 20-section document, an edit to one section inserts
 // one chunk and retires one; the other 20 are reused.
 func TestEditOneSectionWritesOnlyThatSection(t *testing.T) {
-	e := newEnv(t, Options{noGC: true})
+	e := newEnv(t, options{noGC: true})
 	e.write("a.md", sections(20, -1, ""))
 	e.ix.Touch("a.md")
 	e.indexedAt("a.md")
@@ -332,7 +332,7 @@ func TestEditOneSectionWritesOnlyThatSection(t *testing.T) {
 // TestIdenticalSectionsSurviveAndMove: two identical sections both survive an edit before them,
 // and the reused chunks' byte ranges follow the edit.
 func TestIdenticalSectionsSurviveAndMove(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	twin := "## Twin\n\nsame words\n\n"
 	e.write("a.md", "# Doc\n\nintro\n\n"+twin+twin)
 	e.ix.Touch("a.md")
@@ -363,7 +363,7 @@ func TestIdenticalSectionsSurviveAndMove(t *testing.T) {
 
 // TestTitleAndTagChangeReachFTS: with no body change, a new title and tag match, the old ones do not.
 func TestTitleAndTagChangeReachFTS(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.write("a.md", "---\ntitle: Alpha plan\ntags: [oldtag]\n---\nbody text\n")
 	e.ix.Touch("a.md")
 	e.indexedAt("a.md")
@@ -392,7 +392,7 @@ func TestTitleAndTagChangeReachFTS(t *testing.T) {
 
 // TestReindexReparses: a forced job bypasses the fast path.
 func TestReindexReparses(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.write("a.md", "# A\n\ntext\n")
 	e.ix.Touch("a.md")
 	e.indexedAt("a.md")
@@ -406,7 +406,7 @@ func TestReindexReparses(t *testing.T) {
 // TestReaderSeesOneGeneration: a read transaction open across a commit keeps the old text; a new one
 // sees the new text; neither sees a mix.
 func TestReaderSeesOneGeneration(t *testing.T) {
-	e := newEnv(t, Options{noGC: true})
+	e := newEnv(t, options{noGC: true})
 	e.write("a.md", sections(5, -1, ""))
 	e.ix.Touch("a.md")
 	e.indexedAt("a.md")
@@ -447,7 +447,7 @@ func TestReaderSeesOneGeneration(t *testing.T) {
 // TestDeletedAndIneligibleLeave: a removed file, and one replaced by a directory, leave the index
 // and the change log says so.
 func TestDeletedAndIneligibleLeave(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.write("a.md", "apricot\n")
 	e.write("b.md", "blueberry\n")
 	e.ix.Touch("a.md")
@@ -492,7 +492,7 @@ func TestDeletedAndIneligibleLeave(t *testing.T) {
 // TestDeadChunkNeverAHitBeforeGC: a chunk edited away is not a hit even while its row and its FTS
 // entry remain, and GC then removes both.
 func TestDeadChunkNeverAHitBeforeGC(t *testing.T) {
-	e := newEnv(t, Options{noGC: true})
+	e := newEnv(t, options{noGC: true})
 	e.write("a.md", "# A\n\nzebra words\n")
 	e.ix.Touch("a.md")
 	e.indexedAt("a.md")
@@ -521,7 +521,7 @@ func TestDeadChunkNeverAHitBeforeGC(t *testing.T) {
 
 // TestJobsSurviveARestart: jobs a previous run left are processed when the next one starts.
 func TestJobsSurviveARestart(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.write("a.md", "a words\n")
 	e.write("b.md", "b words\n")
 	e.stop()
@@ -529,7 +529,7 @@ func TestJobsSurviveARestart(t *testing.T) {
 		e.exec("INSERT INTO index_job(workspace_id, path, seq, reason, enqueued_at) VALUES (?, ?, ?, 'touch', 0)", e.ws, p, i+1)
 	}
 	e.stop = nil
-	e.open(Options{})
+	e.open(options{})
 	e.indexedAt("a.md")
 	e.indexedAt("b.md")
 }
@@ -539,7 +539,7 @@ func TestJobsSurviveARestart(t *testing.T) {
 func TestStaleResultIsDiscarded(t *testing.T) {
 	var once sync.Once
 	var e *env
-	e = newEnv(t, Options{afterRead: func(p string) {
+	e = newEnv(t, options{afterRead: func(p string) {
 		once.Do(func() {
 			e.write(p, "newer content\n")
 			e.ix.Touch(p)
@@ -597,7 +597,7 @@ func (e *env) snap() snapshot {
 // TestRebuildFromScratchIsEqual: deleting the store and indexing again gives the same documents,
 // chunks, tags, links and names.
 func TestRebuildFromScratchIsEqual(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.write("notes/a.md", "---\ntitle: A\ntags: [x, y]\naliases: [Alpha]\n---\n# A\n\nbody #inline [[b]] [[c]]\n\n## Sub\n\nmore\n")
 	e.write("b.md", sections(4, -1, "")+"\n[[alpha]] [a](notes/a.md#Sub) ![[notes/a]]\n")
 	for _, p := range []string{"notes/a.md", "b.md"} {
@@ -614,7 +614,7 @@ func TestRebuildFromScratchIsEqual(t *testing.T) {
 		_ = os.Remove(filepath.Join(e.dir, f))
 	}
 	e.raw, e.ws, e.stop = nil, 0, nil // a new store: a new workspace, and a raw connection to it
-	e.open(Options{})
+	e.open(options{})
 	// the other order: b.md's links resolve only once files/a.md is back, by re-resolution
 	for _, p := range []string{"b.md", "notes/a.md"} {
 		e.ix.Touch(p)
@@ -628,7 +628,7 @@ func TestRebuildFromScratchIsEqual(t *testing.T) {
 // TestOutdatedDocumentsRebuild: documents indexed under another IndexerVersion are rebuilt on the
 // next start, even when a start before it opened the store and stopped before indexing anything.
 func TestOutdatedDocumentsRebuild(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.write("a.md", "a\n")
 	e.write("b.md", "b\n")
 	e.ix.Touch("a.md")
@@ -644,7 +644,7 @@ func TestOutdatedDocumentsRebuild(t *testing.T) {
 	}
 	_ = db.Close()
 	e.stop = nil
-	e.open(Options{})
+	e.open(options{})
 	// "no pending jobs" is already true before the rebuild's jobs are written, so wait for the end
 	// state itself: every document carrying this version's indexer
 	e.eventually("both documents rebuilt", func() bool {
@@ -660,7 +660,7 @@ func TestOutdatedDocumentsRebuild(t *testing.T) {
 // TestFrontmatter: valid YAML gives the title, tags and aliases; invalid YAML leaves the body
 // indexed and the document flagged.
 func TestFrontmatter(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.write("good.md", "---\ntitle: The Plan\ntags: [Planning, '#q3']\naliases: [plan, roadmap]\n---\nbody #Draft\n")
 	e.write("bad.md", "---\ntitle: [unclosed\n---\nthe body still counts\n")
 	e.write("h1.md", "# From The Heading\n\ntext\n")
@@ -702,7 +702,7 @@ func TestFrontmatter(t *testing.T) {
 // TestChangeCursor: the log is monotonic and pages; a cursor older than the retained log expires,
 // and oldest retained − 1 is still accepted.
 func TestChangeCursor(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	for i := 0; i < 5; i++ {
 		p := fmt.Sprintf("n%d.md", i)
 		e.write(p, fmt.Sprintf("note %d\n", i))
@@ -752,7 +752,7 @@ func TestChangeCursor(t *testing.T) {
 // TestChangeRetention: a row goes only when it is both older than a week and more than 100 000
 // behind the head, and oldest_retained is then exact.
 func TestChangeRetention(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.stop()
 	ctx := context.Background()
 	now := time.Now()
@@ -781,7 +781,7 @@ func TestChangeRetention(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	s := Open(db, e.ws)
+	s := NewStore(db, e.ws)
 	prune := func() {
 		t.Helper()
 		if err := db.Write(ctx, func(tx *store.Tx) error { return s.pruneChanges(tx, now) }); err != nil {
@@ -809,9 +809,9 @@ func TestChangeRetention(t *testing.T) {
 // TestFollowerIntoIndexer: the follower and the indexer together keep the index on the root —
 // 0203 §5.1's changes reach the index, visible through the change log.
 func TestFollowerIntoIndexer(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.write("a.md", "# A\n\nfirst\n")
-	f := follow.New(e.fsys, e.ix, e.ix, follow.Options{PollInterval: 20 * time.Millisecond, MinBackoff: 10 * time.Millisecond, Match: testMatch})
+	f := follow.New(e.fsys, e.ix, e.ix, follow.WithPollInterval(20*time.Millisecond), follow.WithBackoff(10*time.Millisecond, 0), follow.WithMatch(testMatch))
 	ctx, cancel := context.WithCancel(context.Background())
 	ran := make(chan struct{})
 	go func() { _ = f.Run(ctx); close(ran) }()
@@ -843,7 +843,7 @@ var _ vfs.FS = (*memfs.FS)(nil)
 // TestOversizeFileLeavesAndWaits: a note that grows past MaxFileSize leaves the index, and it is not
 // read again until it changes.
 func TestOversizeFileLeavesAndWaits(t *testing.T) {
-	e := newEnv(t, Options{RetryDelay: 5 * time.Millisecond})
+	e := newEnv(t, options{RetryDelay: 5 * time.Millisecond})
 	e.write("a.md", "apricot\n")
 	e.ix.Touch("a.md")
 	e.indexedAt("a.md")
@@ -880,7 +880,7 @@ func TestOversizeFileLeavesAndWaits(t *testing.T) {
 // note is indexed once it can be read.
 func TestUnreadableFileRetriesWithBackoff(t *testing.T) {
 	// a short batch cycle, so the retry wait is what spaces the reads
-	e := newEnv(t, Options{BatchDelay: 2 * time.Millisecond, RetryDelay: 20 * time.Millisecond, MaxRetryDelay: 160 * time.Millisecond})
+	e := newEnv(t, options{BatchDelay: 2 * time.Millisecond, RetryDelay: 20 * time.Millisecond, MaxRetryDelay: 160 * time.Millisecond})
 	e.fault.failOpen("a.md", fs.ErrPermission)
 	e.write("a.md", "apricot\n")
 	e.ix.Touch("a.md")
@@ -906,7 +906,7 @@ func TestUnreadableFileRetriesWithBackoff(t *testing.T) {
 }
 
 func TestRetryDelayDoublesToTheCap(t *testing.T) {
-	x := NewIndexer(nil, nil, Options{RetryDelay: 10 * time.Millisecond, MaxRetryDelay: 45 * time.Millisecond})
+	x := newIndexer(nil, nil, options{RetryDelay: 10 * time.Millisecond, MaxRetryDelay: 45 * time.Millisecond})
 	var got []time.Duration
 	for a := 1; a <= 5; a++ {
 		got = append(got, x.retryDelay(a))
@@ -920,7 +920,7 @@ func TestRetryDelayDoublesToTheCap(t *testing.T) {
 // TestReferenceDefinitionsAreNotText: a link reference definition, between blocks or inside a list
 // item or a block quote, is in no chunk and no FTS row.
 func TestReferenceDefinitionsAreNotText(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.write("a.md", "alpha words\n\n[secret]: https://hidden.example/needle\n\nbeta words\n\n"+
 		"- [inlist]: https://hidden.example/pinecone\n  gamma words\n\n"+
 		"> [quoted]: https://hidden.example/walnut\n> delta words\n")
@@ -945,10 +945,10 @@ type noWatch struct{ vfs.FS }
 // TestReindexEverythingFindsNewFiles: Reindex("") re-parses the indexed documents and, through the
 // follower, indexes a file the index has not seen.
 func TestReindexEverythingFindsNewFiles(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.write("a.md", "apricot\n")
 	// an hour between polls: only the start's reconcile and a Rescan look at the root
-	f := follow.New(noWatch{e.fsys}, e.ix, e.ix, follow.Options{PollInterval: time.Hour, Match: testMatch})
+	f := follow.New(noWatch{e.fsys}, e.ix, e.ix, follow.WithPollInterval(time.Hour), follow.WithMatch(testMatch))
 	e.ix.SetRescanner(f)
 	ctx, cancel := context.WithCancel(context.Background())
 	ran := make(chan struct{})

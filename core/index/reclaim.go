@@ -71,7 +71,7 @@ func (s *Store) reclaim(ctx context.Context, fp string, write writeFn) (Reclaime
 				done = true // in use again: what is left stays
 				return nil
 			}
-			keys, err := s.sc.Embeddings(tx).With(store.EmbModel, fp).Limit(reclaimBatch).Select(store.EmbTextHash)
+			keys, err := s.embeddings(tx).With(EmbModel, fp).Limit(reclaimBatch).Select(EmbTextHash)
 			if err != nil {
 				return err
 			}
@@ -84,7 +84,7 @@ func (s *Store) reclaim(ctx context.Context, fp string, write writeFn) (Reclaime
 				hashes[i] = k.TextHash
 			}
 			n = len(keys)
-			return s.sc.Embeddings(tx).With(store.EmbModel, fp).With(store.EmbTextHash, hashes...).Delete()
+			return s.embeddings(tx).With(EmbModel, fp).With(EmbTextHash, hashes...).Delete()
 		})
 		if err != nil {
 			return out, fmt.Errorf("index: reclaiming %s: %w", fp, err)
@@ -111,14 +111,14 @@ func (s *Store) storeWrite(ctx context.Context, fn func(context.Context, *store.
 // a workspace whose indexer does not run: no provider, or its root unavailable. A workspace an
 // indexer runs is swept through it (Sweep), whose writer its reclaim must wait behind.
 func SweepStore(ctx context.Context, db *store.Store, workspace int64) ([]Reclaimed, error) {
-	s := Open(db, workspace)
+	s := NewStore(db, workspace)
 	return s.sweep(ctx, s.storeWrite)
 }
 
 // ReclaimStore reclaims workspace's model fp through the store alone: a model taken out of use with
 // its provider's removal, whose workspace's indexer is restarting without one.
 func ReclaimStore(ctx context.Context, db *store.Store, workspace int64, fp string) (Reclaimed, error) {
-	s := Open(db, workspace)
+	s := NewStore(db, workspace)
 	return s.reclaim(ctx, fp, s.storeWrite)
 }
 

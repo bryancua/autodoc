@@ -39,7 +39,7 @@ func sameStatus(a, b Status) bool { return reflect.DeepEqual(a, b) }
 func TestStatusIsComputedOncePerCommit(t *testing.T) {
 	var computed atomic.Int64
 	a := newFake("m", "a")
-	e := newEnv(t, Options{Provider: a, onStatusCompute: func() { computed.Add(1) }})
+	e := newEnv(t, options{Provider: a, onStatusCompute: func() { computed.Add(1) }})
 	e.put("x.md", "zebra\n")
 	e.ready()
 	e.status()
@@ -90,7 +90,7 @@ func TestStatusIsComputedOncePerCommit(t *testing.T) {
 func TestStatusIsOneSnapshot(t *testing.T) {
 	var hook func()
 	a := newFake("m", "a")
-	e := newEnv(t, Options{Provider: a, betweenStatusReads: func() {
+	e := newEnv(t, options{Provider: a, betweenStatusReads: func() {
 		if hook != nil {
 			hook()
 		}
@@ -123,7 +123,7 @@ func TestStatusIsComputedOnceForItsWaiters(t *testing.T) {
 	var gated atomic.Bool
 	var parked atomic.Int64 // computations stopped at the gate
 	a := newFake("m", "a")
-	e := newEnv(t, Options{Provider: a, onStatusCompute: func() { computed.Add(1) }, betweenStatusReads: func() {
+	e := newEnv(t, options{Provider: a, onStatusCompute: func() { computed.Add(1) }, betweenStatusReads: func() {
 		if gated.Load() {
 			parked.Add(1)
 			<-gate
@@ -180,7 +180,7 @@ func TestStatusIsComputedOnceForItsWaiters(t *testing.T) {
 // answering with a count missing, and the next status after the store is whole answers again. Each
 // read is broken in turn: the documents, the jobs, the unparsed frontmatter, the diagnostics.
 func TestAStatusThatCannotReadSaysSo(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("x.md", "zebra\n")
 	for _, c := range []struct {
 		name string

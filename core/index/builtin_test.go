@@ -47,14 +47,14 @@ func everyBuild(t *testing.T, goChunker search.Chunker) *registrations.Table {
 func TestCodeAPreviousBuildIndexedStaysCurrent(t *testing.T) {
 	ctx := context.Background()
 	pro := &counting{Chunker: codechunk.Go{}}
-	e := newEnv(t, Options{Match: goAndMarkdown, Registrations: registered(t, pro)})
+	e := newEnv(t, options{Match: goAndMarkdown, Registrations: registered(t, pro)})
 	e.put("a.go", goSrc)
 	recorded := e.indexerOf("a.go")
 	if !strings.HasPrefix(recorded, "c.go@code-go-2+text-5.") {
 		t.Fatalf("the Pro build recorded %q", recorded)
 	}
 	now := &counting{Chunker: codechunk.Go{}}
-	e.open(Options{Match: goAndMarkdown, Registrations: everyBuild(t, now)})
+	e.open(options{Match: goAndMarkdown, Registrations: everyBuild(t, now)})
 	// a.go touched with a new file beside it: once the new one is cut, the touch has been handled
 	e.ix.Touch("a.go")
 	e.put("b.go", "package a\n\nfunc C() {\n\treturn\n}\n")
@@ -81,7 +81,7 @@ func documentsToo(p string) bool {
 func TestEveryBuildDerivesDocumentsAndHTML(t *testing.T) {
 	ctx := context.Background()
 	reg := everyBuild(t, nil)
-	e := newEnv(t, Options{Match: documentsToo, Registrations: reg})
+	e := newEnv(t, options{Match: documentsToo, Registrations: reg})
 	// an .html file recorded as Markdown, as a build before this one did
 	e.write("old.html", "<p>osprey</p>")
 	fi, err := e.fsys.Stat(ctx, "old.html")
@@ -90,7 +90,7 @@ func TestEveryBuildDerivesDocumentsAndHTML(t *testing.T) {
 	}
 	e.exec(`INSERT INTO document(workspace_id, path, version, active_gen, indexer, indexed_at) VALUES (?, 'old.html', ?, 1, ?, 0)`,
 		e.ws, string(fi.Version), "c"+ChunkerVersion+".s3.t512")
-	e.open(Options{Match: documentsToo, Registrations: reg})
+	e.open(options{Match: documentsToo, Registrations: reg})
 
 	page := `<html><head><title>Page</title><script>exfiltrate()</script></head><body><nav>menubar</nav>` +
 		`<main><h1>Kestrel</h1><p>hovers <b>still</b></p></main></body></html>`

@@ -77,7 +77,7 @@ func stagedEnv(t *testing.T, r Rank) (*env, *fakeProvider, *counter, *rank.Holde
 	h := &rank.Holder{}
 	h.Set(c, rank.DefaultWindow)
 	r.Source = h
-	e := newEnv(t, Options{Provider: p, Rank: r})
+	e := newEnv(t, options{Provider: p, Rank: r})
 	e.put("short.md", "# Short\n\nkestrel\n", "long.md", "# Long\n\nkestrel among many other words in a longer chunk of text\n")
 	e.ready()
 	return e, p, c, h
@@ -136,7 +136,7 @@ func TestSemanticAloneNeverFallsBackToWords(t *testing.T) {
 		t.Errorf("both, the query not embedded: %s, %d hits, %+v", res.ModeUsed, len(res.Hits), res.Stages)
 	}
 
-	none := newEnv(t, Options{})
+	none := newEnv(t, options{})
 	none.put("a.md", "kestrel\n")
 	if _, err := none.ix.Search(context.Background(), "kestrel", stagesOf(StageSemantic)); !errors.Is(err, ErrNoProvider) {
 		t.Errorf("semantic alone, no model: %v, want ErrNoProvider", err)

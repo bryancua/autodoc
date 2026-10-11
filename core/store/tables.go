@@ -202,102 +202,6 @@ const (
 	PatternValue     PatternField = "pattern"
 )
 
-// Document is one indexed file.
-type Document struct {
-	ID, WorkspaceID  int64
-	Path, Version    string
-	ActiveGen        int64
-	SemanticReady    int64
-	Title            *string
-	FrontmatterJSON  *string
-	FrontmatterError *string
-	Indexer          string
-	IndexedAt        int64
-}
-
-// DocumentField names a document column.
-type DocumentField string
-
-const (
-	DocID               DocumentField = "id"
-	DocWorkspace        DocumentField = wsCol
-	DocPath             DocumentField = "path"
-	DocVersion          DocumentField = "version"
-	DocActiveGen        DocumentField = "active_gen"
-	DocSemanticReady    DocumentField = "semantic_ready"
-	DocTitle            DocumentField = "title"
-	DocFrontmatterJSON  DocumentField = "frontmatter_json"
-	DocFrontmatterError DocumentField = "frontmatter_error"
-	DocIndexer          DocumentField = "indexer"
-	DocIndexedAt        DocumentField = "indexed_at"
-)
-
-// Chunk is one section of a document, alive in [GenFrom, GenTo).
-type Chunk struct {
-	ID, WorkspaceID, DocID int64
-	Hash, TextHash         []byte
-	GenFrom                int64
-	GenTo                  *int64
-	Ord                    int64
-	Breadcrumb, Body       string
-	Embed                  string // the text its vector is made of, when not Breadcrumb + "\n" + Body (000012)
-	Title, Tags            string
-	ByteStart, ByteEnd     int64
-	Kind                   string // "section", or "abstract": the document's abstract (000014)
-	DocPath                string // joined: the document's path
-	DocActiveGen           int64  // joined: the document's active generation
-	DocReady               int64  // joined: the document's semantic_ready
-	Snippet                string // joined: the full-text excerpt
-	EmbBits, EmbF32        []byte // joined: the vector of the chunk's text under a model
-}
-
-// ChunkField names a chunk column.
-type ChunkField string
-
-const (
-	ChunkID           ChunkField = "id"
-	ChunkWorkspace    ChunkField = wsCol
-	ChunkDoc          ChunkField = "doc_id"
-	ChunkHash         ChunkField = "hash"
-	ChunkTextHash     ChunkField = "text_hash"
-	ChunkGenFrom      ChunkField = "gen_from"
-	ChunkGenTo        ChunkField = "gen_to"
-	ChunkOrd          ChunkField = "ord"
-	ChunkBreadcrumb   ChunkField = "breadcrumb"
-	ChunkBody         ChunkField = "body"
-	ChunkEmbed        ChunkField = "embed"
-	ChunkTitle        ChunkField = "title"
-	ChunkTags         ChunkField = "tags"
-	ChunkByteStart    ChunkField = "byte_start"
-	ChunkByteEnd      ChunkField = "byte_end"
-	ChunkKind         ChunkField = "kind"
-	ChunkDocPath      ChunkField = "doc_path"       // joined
-	ChunkDocActiveGen ChunkField = "doc_active_gen" // joined
-	ChunkDocReady     ChunkField = "doc_ready"      // joined
-	ChunkSnippet      ChunkField = "snippet"        // joined, full text
-	ChunkEmbBits      ChunkField = "emb_bits"       // joined, embedding
-	ChunkEmbF32       ChunkField = "emb_f32"        // joined, embedding
-)
-
-// ChunkSort names a chunk order.
-type ChunkSort string
-
-const (
-	ChunkByID   ChunkSort = "id"
-	ChunkByOrd  ChunkSort = "ord"
-	ChunkByPath ChunkSort = "path" // the document's path, then ord
-	ChunkByRank ChunkSort = "rank" // full-text rank, best first
-)
-
-// The chunk declaration's joins. Each is on the composite key, the workspace
-// with the row's own key (innerJoin): a joined row is always the chunk's
-// workspace's, as the chunk is.
-const (
-	JoinDocument  dao.JoinKey = "document"
-	JoinFTS       dao.JoinKey = "fts"
-	JoinEmbedding dao.JoinKey = "embedding"
-)
-
 // innerJoin joins table to from on the workspace, then table's col equal to
 // from's key: a join between two workspace-owned tables is on both. leftJoin
 // keeps a from row that joins none.
@@ -308,157 +212,6 @@ func innerJoin(table, col, from, key string) dao.Expr {
 func leftJoin(table, col, from, key string) dao.Expr {
 	return dao.LeftJoinOn(table, dao.On(dao.T(table, wsCol), dao.T(from, wsCol)), dao.On(dao.T(table, col), dao.T(from, key)))
 }
-
-// The markers a chunk's full-text Snippet puts around each match: control
-// characters, which no file's text holds.
-const (
-	HighlightStart = "\x02"
-	HighlightEnd   = "\x03"
-)
-
-// ChunkFTS is the full-text index over chunk (the baseline's chunk_fts).
-var ChunkFTS = dao.FullTextIndex{Name: "chunk_fts", Table: "chunk", Key: "id",
-	Columns: []string{"title", "breadcrumb", "tags", "body", wsCol}}
-
-// DocValue is one tag or alias of a document.
-type DocValue struct {
-	WorkspaceID, DocID int64
-	Value              string
-}
-
-// DocValueField names a doc_tag or doc_alias column.
-type DocValueField string
-
-const (
-	DocValueWorkspace DocValueField = wsCol
-	DocValueDoc       DocValueField = "doc_id"
-	DocValueValue     DocValueField = "value" // the tag or alias
-)
-
-// Facet is one typed value of a document's declared frontmatter field (000007).
-type Facet struct {
-	WorkspaceID, DocID int64
-	Field, Value       string
-}
-
-// FacetField names a doc_facet column.
-type FacetField string
-
-const (
-	FacetWorkspace FacetField = wsCol
-	FacetDoc       FacetField = "doc_id"
-	FacetName      FacetField = "field"
-	FacetValue     FacetField = "value"
-)
-
-// Diagnostic is one problem with a document's frontmatter, in source order (000007).
-type Diagnostic struct {
-	WorkspaceID, DocID int64
-	Ord                int64
-	Field              string
-	Line               int64
-	Rule, Message      string
-	DocPath            string // joined: the document's path
-}
-
-// DiagnosticField names a doc_diagnostic column.
-type DiagnosticField string
-
-const (
-	DiagWorkspace DiagnosticField = wsCol
-	DiagDoc       DiagnosticField = "doc_id"
-	DiagOrd       DiagnosticField = "ord"
-	DiagField     DiagnosticField = "field"
-	DiagLine      DiagnosticField = "line"
-	DiagRule      DiagnosticField = "rule"
-	DiagMessage   DiagnosticField = "message"
-	DiagDocPath   DiagnosticField = "doc_path" // joined
-)
-
-// DiagnosticSort names a doc_diagnostic order.
-type DiagnosticSort string
-
-const DiagByPath DiagnosticSort = "path" // the document's path, then ord
-
-// DocName is a name a link can resolve through.
-type DocName struct {
-	WorkspaceID int64
-	Key         string
-	DocID       int64
-	IsPath      int64
-	DocPath     string // joined
-}
-
-// DocNameField names a doc_name column.
-type DocNameField string
-
-const (
-	NameWorkspace DocNameField = wsCol
-	NameKey       DocNameField = "name_key"
-	NameDoc       DocNameField = "doc_id"
-	NameIsPath    DocNameField = "is_path"
-	NameDocPath   DocNameField = "doc_path" // joined
-)
-
-// LinkKey is one of the names a relation link is looked up under, tried in Ord order: a
-// frontmatter relation may name its target as a path from the workspace root and from its own
-// folder, and resolves to the first that exists.
-type LinkKey struct {
-	WorkspaceID int64
-	LinkID      int64
-	Ord         int64
-	Key         string
-}
-
-// LinkKeyField names a link_key column.
-type LinkKeyField string
-
-const (
-	LinkKeyWorkspace LinkKeyField = wsCol
-	LinkKeyLink      LinkKeyField = "link_id"
-	LinkKeyOrd       LinkKeyField = "ord"
-	LinkKeyKey       LinkKeyField = "key"
-)
-
-// Link is one link from a document.
-type Link struct {
-	ID, WorkspaceID, SrcDoc int64
-	GenFrom                 int64
-	GenTo                   *int64
-	Raw, Name               string
-	DstDoc                  *int64
-	Anchor                  *string
-	Kind                    string
-	OtherPath               string // joined: the path of the document at the other end
-}
-
-// LinkField names a link column.
-type LinkField string
-
-const (
-	LinkID        LinkField = "id"
-	LinkWorkspace LinkField = wsCol
-	LinkSrc       LinkField = "src_doc"
-	LinkGenFrom   LinkField = "gen_from"
-	LinkGenTo     LinkField = "gen_to"
-	LinkRaw       LinkField = "raw"
-	LinkName      LinkField = "name"
-	LinkDst       LinkField = "dst_doc"
-	LinkAnchor    LinkField = "anchor"
-	LinkKind      LinkField = "kind"
-	LinkOtherPath LinkField = "other_path" // joined
-)
-
-// LinkSort names a link order.
-type LinkSort string
-
-const (
-	LinkByID        LinkSort = "id"
-	LinkByOtherPath LinkSort = "other_path"
-)
-
-// The document at a link's other end: its target (links out) or its source (backlinks).
-const JoinOther dao.JoinKey = "other"
 
 // Model is an embedding model a workspace used.
 type Model struct {
@@ -482,70 +235,6 @@ const (
 	ModelDims      ModelField = "dims"
 	ModelActive    ModelField = "active"
 	ModelTarget    ModelField = "target"
-)
-
-// Embedding is a text's vector under a model.
-type Embedding struct {
-	WorkspaceID int64
-	TextHash    []byte
-	ModelFP     string
-	Bits, F32   []byte
-}
-
-// EmbeddingField names an embedding column.
-type EmbeddingField string
-
-const (
-	EmbWorkspace EmbeddingField = wsCol
-	EmbTextHash  EmbeddingField = "text_hash"
-	EmbModel     EmbeddingField = "model_fp"
-	EmbBits      EmbeddingField = "bits"
-	EmbF32       EmbeddingField = "f32"
-)
-
-// Job is a file waiting to be indexed.
-type Job struct {
-	WorkspaceID int64
-	Path        string
-	Seq         int64
-	Reason      *string
-	EnqueuedAt  *int64
-	Attempts    int64
-	LastError   *string
-}
-
-// JobField names an index_job column.
-type JobField string
-
-const (
-	JobWorkspace  JobField = wsCol
-	JobPath       JobField = "path"
-	JobSeq        JobField = "seq"
-	JobReason     JobField = "reason"
-	JobEnqueuedAt JobField = "enqueued_at"
-	JobAttempts   JobField = "attempts"
-	JobLastError  JobField = "last_error"
-)
-
-// Change is one row of a workspace's change log.
-type Change struct {
-	WorkspaceID int64
-	Seq         int64
-	Path, Op    string
-	Generation  int64
-	At          int64
-}
-
-// ChangeField names a change column.
-type ChangeField string
-
-const (
-	ChangeWorkspace  ChangeField = wsCol
-	ChangeSeq        ChangeField = "seq"
-	ChangePath       ChangeField = "path"
-	ChangeOp         ChangeField = "op"
-	ChangeGeneration ChangeField = "generation"
-	ChangeAt         ChangeField = "at"
 )
 
 // Event is one configuration or lifecycle change, in the daemon-wide log (000009).
@@ -590,21 +279,9 @@ type tables struct {
 	rankCalls   *dao.Schema[*LogEntry, LogField, noSort, int64]
 	patterns    *dao.Schema[*Pattern, PatternField, noSort, int64]
 	connections *dao.Schema[*Connection, ConnectionField, noSort, int64]
-	documents   *dao.Schema[*Document, DocumentField, noSort, int64]
-	chunks      *dao.Schema[*Chunk, ChunkField, ChunkSort, int64]
-	tags        *dao.Schema[*DocValue, DocValueField, noSort, int64]
-	aliases     *dao.Schema[*DocValue, DocValueField, noSort, int64]
-	names       *dao.Schema[*DocName, DocNameField, noSort, int64]
-	linkKeys    *dao.Schema[*LinkKey, LinkKeyField, noSort, int64]
-	facets      *dao.Schema[*Facet, FacetField, noSort, int64]
-	diagnostics *dao.Schema[*Diagnostic, DiagnosticField, DiagnosticSort, int64]
-	linksOut    *dao.Schema[*Link, LinkField, LinkSort, int64] // joined to the target
-	linksIn     *dao.Schema[*Link, LinkField, LinkSort, int64] // joined to the source
 	models      *dao.Schema[*Model, ModelField, noSort, string]
-	embeddings  *dao.Schema[*Embedding, EmbeddingField, noSort, string]
-	jobs        *dao.Schema[*Job, JobField, noSort, string]
-	changes     *dao.Schema[*Change, ChangeField, noSort, int64]
 	events      *dao.Schema[*Event, EventField, noSort, int64]
+	declared    []any // every package's own declared tables (declare.go)
 }
 
 func col[R any, T ~string](table string, c T, scan func(R) any) dao.Field[R] {
@@ -617,6 +294,7 @@ func joined[R any, T ~string](table string, c T, join dao.JoinKey, scan func(R) 
 
 func newTables(c dao.DataConn) *tables {
 	return &tables{
+		declared: built(c),
 		workspaces: dao.New[*Workspace, WorkspaceField, noSort, int64](c,
 			dao.Table[*Workspace, WorkspaceField, noSort, int64]("workspace"),
 			dao.ID[*Workspace, WorkspaceField, noSort, int64](WorkspaceID),
@@ -756,115 +434,6 @@ func newTables(c dao.DataConn) *tables {
 			}),
 			dao.Conflict[*Connection, ConnectionField, noSort, int64](ConnWorkspace, ConnRole),
 			dao.SortMap[*Connection, ConnectionField, noSort, int64](map[noSort]string{ByKey: `"workspace_connection"."role"`})),
-		documents: dao.New[*Document, DocumentField, noSort, int64](c,
-			dao.Table[*Document, DocumentField, noSort, int64]("document"),
-			dao.ID[*Document, DocumentField, noSort, int64](DocID),
-			dao.Fields[*Document, DocumentField, noSort, int64](map[DocumentField]dao.Field[*Document]{
-				DocID:               col("document", DocID, func(d *Document) any { return &d.ID }),
-				DocWorkspace:        col("document", DocWorkspace, func(d *Document) any { return &d.WorkspaceID }),
-				DocPath:             col("document", DocPath, func(d *Document) any { return &d.Path }),
-				DocVersion:          col("document", DocVersion, func(d *Document) any { return &d.Version }),
-				DocActiveGen:        col("document", DocActiveGen, func(d *Document) any { return &d.ActiveGen }),
-				DocSemanticReady:    col("document", DocSemanticReady, func(d *Document) any { return &d.SemanticReady }),
-				DocTitle:            col("document", DocTitle, func(d *Document) any { return &d.Title }),
-				DocFrontmatterJSON:  col("document", DocFrontmatterJSON, func(d *Document) any { return &d.FrontmatterJSON }),
-				DocFrontmatterError: col("document", DocFrontmatterError, func(d *Document) any { return &d.FrontmatterError }),
-				DocIndexer:          col("document", DocIndexer, func(d *Document) any { return &d.Indexer }),
-				DocIndexedAt:        col("document", DocIndexedAt, func(d *Document) any { return &d.IndexedAt }),
-			}),
-			dao.SortMap[*Document, DocumentField, noSort, int64](map[noSort]string{ByPath: `"document"."path"`})),
-		chunks: dao.New[*Chunk, ChunkField, ChunkSort, int64](c,
-			dao.Table[*Chunk, ChunkField, ChunkSort, int64]("chunk"),
-			dao.ID[*Chunk, ChunkField, ChunkSort, int64](ChunkID),
-			dao.Fields[*Chunk, ChunkField, ChunkSort, int64](map[ChunkField]dao.Field[*Chunk]{
-				ChunkID:           col("chunk", ChunkID, func(x *Chunk) any { return &x.ID }),
-				ChunkWorkspace:    col("chunk", ChunkWorkspace, func(x *Chunk) any { return &x.WorkspaceID }),
-				ChunkDoc:          col("chunk", ChunkDoc, func(x *Chunk) any { return &x.DocID }),
-				ChunkHash:         col("chunk", ChunkHash, func(x *Chunk) any { return &x.Hash }),
-				ChunkTextHash:     col("chunk", ChunkTextHash, func(x *Chunk) any { return &x.TextHash }),
-				ChunkGenFrom:      col("chunk", ChunkGenFrom, func(x *Chunk) any { return &x.GenFrom }),
-				ChunkGenTo:        col("chunk", ChunkGenTo, func(x *Chunk) any { return &x.GenTo }),
-				ChunkOrd:          col("chunk", ChunkOrd, func(x *Chunk) any { return &x.Ord }),
-				ChunkBreadcrumb:   col("chunk", ChunkBreadcrumb, func(x *Chunk) any { return &x.Breadcrumb }),
-				ChunkBody:         col("chunk", ChunkBody, func(x *Chunk) any { return &x.Body }),
-				ChunkEmbed:        col("chunk", ChunkEmbed, func(x *Chunk) any { return &x.Embed }),
-				ChunkTitle:        col("chunk", ChunkTitle, func(x *Chunk) any { return &x.Title }),
-				ChunkTags:         col("chunk", ChunkTags, func(x *Chunk) any { return &x.Tags }),
-				ChunkByteStart:    col("chunk", ChunkByteStart, func(x *Chunk) any { return &x.ByteStart }),
-				ChunkByteEnd:      col("chunk", ChunkByteEnd, func(x *Chunk) any { return &x.ByteEnd }),
-				ChunkKind:         col("chunk", ChunkKind, func(x *Chunk) any { return &x.Kind }),
-				ChunkDocPath:      joined("document", "path", JoinDocument, func(x *Chunk) any { return &x.DocPath }),
-				ChunkDocActiveGen: joined("document", "active_gen", JoinDocument, func(x *Chunk) any { return &x.DocActiveGen }),
-				ChunkDocReady:     joined("document", "semantic_ready", JoinDocument, func(x *Chunk) any { return &x.DocReady }),
-				ChunkSnippet: {Expr: dao.Snippet(ChunkFTS, "body", dao.SnippetMarks{Open: HighlightStart, Close: HighlightEnd, Ellipsis: "…", Tokens: 16}),
-					Join: JoinFTS, ReadOnly: true, Scan: func(x *Chunk) any { return &x.Snippet }},
-				ChunkEmbBits: joined("embedding", "bits", JoinEmbedding, func(x *Chunk) any { return &x.EmbBits }),
-				ChunkEmbF32:  joined("embedding", "f32", JoinEmbedding, func(x *Chunk) any { return &x.EmbF32 }),
-			}),
-			dao.OptionalJoinExpr[*Chunk, ChunkField, ChunkSort, int64](JoinDocument,
-				innerJoin("document", "id", "chunk", "doc_id")),
-			dao.OptionalJoinExpr[*Chunk, ChunkField, ChunkSort, int64](JoinFTS, dao.FullTextJoin(ChunkFTS)),
-			dao.OptionalJoinExpr[*Chunk, ChunkField, ChunkSort, int64](JoinEmbedding,
-				innerJoin("embedding", "text_hash", "chunk", "text_hash")),
-			dao.SortMap[*Chunk, ChunkField, ChunkSort, int64](map[ChunkSort]string{
-				ChunkByID:   `"chunk"."id"`,
-				ChunkByOrd:  `"chunk"."ord"`,
-				ChunkByPath: `"document"."path", "chunk"."ord"`,
-			}),
-			dao.JoinForSort[*Chunk, ChunkField, ChunkSort, int64](ChunkByPath, JoinDocument),
-			dao.SortExpr[*Chunk, ChunkField, ChunkSort, int64](ChunkByRank, dao.Rank(ChunkFTS, 10, 5, 5, 1, 0)),
-			dao.JoinForSort[*Chunk, ChunkField, ChunkSort, int64](ChunkByRank, JoinFTS)),
-		tags:    docValues(c, "doc_tag", "tag"),
-		aliases: docValues(c, "doc_alias", "alias"),
-		names: dao.New[*DocName, DocNameField, noSort, int64](c,
-			dao.Table[*DocName, DocNameField, noSort, int64]("doc_name"),
-			dao.Fields[*DocName, DocNameField, noSort, int64](map[DocNameField]dao.Field[*DocName]{
-				NameWorkspace: col("doc_name", NameWorkspace, func(n *DocName) any { return &n.WorkspaceID }),
-				NameKey:       col("doc_name", NameKey, func(n *DocName) any { return &n.Key }),
-				NameDoc:       col("doc_name", NameDoc, func(n *DocName) any { return &n.DocID }),
-				NameIsPath:    col("doc_name", NameIsPath, func(n *DocName) any { return &n.IsPath }),
-				NameDocPath:   joined("document", "path", JoinDocument, func(n *DocName) any { return &n.DocPath }),
-			}),
-			dao.OptionalJoinExpr[*DocName, DocNameField, noSort, int64](JoinDocument,
-				innerJoin("document", "id", "doc_name", "doc_id"))),
-		linkKeys: dao.New[*LinkKey, LinkKeyField, noSort, int64](c,
-			dao.Table[*LinkKey, LinkKeyField, noSort, int64]("link_key"),
-			dao.Fields[*LinkKey, LinkKeyField, noSort, int64](map[LinkKeyField]dao.Field[*LinkKey]{
-				LinkKeyWorkspace: col("link_key", LinkKeyWorkspace, func(k *LinkKey) any { return &k.WorkspaceID }),
-				LinkKeyLink:      col("link_key", LinkKeyLink, func(k *LinkKey) any { return &k.LinkID }),
-				LinkKeyOrd:       col("link_key", LinkKeyOrd, func(k *LinkKey) any { return &k.Ord }),
-				LinkKeyKey:       col("link_key", LinkKeyKey, func(k *LinkKey) any { return &k.Key }),
-			})),
-		facets: dao.New[*Facet, FacetField, noSort, int64](c,
-			dao.Table[*Facet, FacetField, noSort, int64]("doc_facet"),
-			dao.Fields[*Facet, FacetField, noSort, int64](map[FacetField]dao.Field[*Facet]{
-				FacetWorkspace: col("doc_facet", FacetWorkspace, func(f *Facet) any { return &f.WorkspaceID }),
-				FacetDoc:       col("doc_facet", FacetDoc, func(f *Facet) any { return &f.DocID }),
-				FacetName:      col("doc_facet", FacetName, func(f *Facet) any { return &f.Field }),
-				FacetValue:     col("doc_facet", FacetValue, func(f *Facet) any { return &f.Value }),
-			}),
-			dao.Conflict[*Facet, FacetField, noSort, int64](FacetWorkspace, FacetName, FacetValue, FacetDoc),
-			dao.SortMap[*Facet, FacetField, noSort, int64](map[noSort]string{ByKey: `"doc_facet"."field", "doc_facet"."value"`})),
-		diagnostics: dao.New[*Diagnostic, DiagnosticField, DiagnosticSort, int64](c,
-			dao.Table[*Diagnostic, DiagnosticField, DiagnosticSort, int64]("doc_diagnostic"),
-			dao.Fields[*Diagnostic, DiagnosticField, DiagnosticSort, int64](map[DiagnosticField]dao.Field[*Diagnostic]{
-				DiagWorkspace: col("doc_diagnostic", DiagWorkspace, func(d *Diagnostic) any { return &d.WorkspaceID }),
-				DiagDoc:       col("doc_diagnostic", DiagDoc, func(d *Diagnostic) any { return &d.DocID }),
-				DiagOrd:       col("doc_diagnostic", DiagOrd, func(d *Diagnostic) any { return &d.Ord }),
-				DiagField:     col("doc_diagnostic", DiagField, func(d *Diagnostic) any { return &d.Field }),
-				DiagLine:      col("doc_diagnostic", DiagLine, func(d *Diagnostic) any { return &d.Line }),
-				DiagRule:      col("doc_diagnostic", DiagRule, func(d *Diagnostic) any { return &d.Rule }),
-				DiagMessage:   col("doc_diagnostic", DiagMessage, func(d *Diagnostic) any { return &d.Message }),
-				DiagDocPath:   joined("document", "path", JoinDocument, func(d *Diagnostic) any { return &d.DocPath }),
-			}),
-			dao.OptionalJoinExpr[*Diagnostic, DiagnosticField, DiagnosticSort, int64](JoinDocument,
-				innerJoin("document", "id", "doc_diagnostic", "doc_id")),
-			dao.SortMap[*Diagnostic, DiagnosticField, DiagnosticSort, int64](map[DiagnosticSort]string{
-				DiagByPath: `"document"."path", "doc_diagnostic"."ord"`,
-			}),
-			dao.JoinForSort[*Diagnostic, DiagnosticField, DiagnosticSort, int64](DiagByPath, JoinDocument)),
-		linksOut: links(c, "dst_doc", true),
-		linksIn:  links(c, "src_doc", false),
 		models: dao.New[*Model, ModelField, noSort, string](c,
 			dao.Table[*Model, ModelField, noSort, string]("model"),
 			dao.Fields[*Model, ModelField, noSort, string](map[ModelField]dao.Field[*Model]{
@@ -877,43 +446,6 @@ func newTables(c dao.DataConn) *tables {
 				ModelTarget:    col("model", ModelTarget, func(m *Model) any { return &m.Target }),
 			}),
 			dao.Conflict[*Model, ModelField, noSort, string](ModelWorkspace, ModelFP)),
-		embeddings: dao.New[*Embedding, EmbeddingField, noSort, string](c,
-			dao.Table[*Embedding, EmbeddingField, noSort, string]("embedding"),
-			dao.Fields[*Embedding, EmbeddingField, noSort, string](map[EmbeddingField]dao.Field[*Embedding]{
-				EmbWorkspace: col("embedding", EmbWorkspace, func(e *Embedding) any { return &e.WorkspaceID }),
-				EmbTextHash:  col("embedding", EmbTextHash, func(e *Embedding) any { return &e.TextHash }),
-				EmbModel:     col("embedding", EmbModel, func(e *Embedding) any { return &e.ModelFP }),
-				EmbBits:      col("embedding", EmbBits, func(e *Embedding) any { return &e.Bits }),
-				EmbF32:       col("embedding", EmbF32, func(e *Embedding) any { return &e.F32 }),
-			}),
-			dao.Conflict[*Embedding, EmbeddingField, noSort, string](EmbWorkspace, EmbTextHash, EmbModel),
-			// a model's vectors in key order, as embedding_workspace_model_text holds them: the
-			// start sweep's cursor (ADR 1791329335 §2.4)
-			dao.SortMap[*Embedding, EmbeddingField, noSort, string](map[noSort]string{ByKey: `"embedding"."text_hash"`})),
-		jobs: dao.New[*Job, JobField, noSort, string](c,
-			dao.Table[*Job, JobField, noSort, string]("index_job"),
-			dao.Fields[*Job, JobField, noSort, string](map[JobField]dao.Field[*Job]{
-				JobWorkspace:  col("index_job", JobWorkspace, func(j *Job) any { return &j.WorkspaceID }),
-				JobPath:       col("index_job", JobPath, func(j *Job) any { return &j.Path }),
-				JobSeq:        col("index_job", JobSeq, func(j *Job) any { return &j.Seq }),
-				JobReason:     col("index_job", JobReason, func(j *Job) any { return &j.Reason }),
-				JobEnqueuedAt: col("index_job", JobEnqueuedAt, func(j *Job) any { return &j.EnqueuedAt }),
-				JobAttempts:   col("index_job", JobAttempts, func(j *Job) any { return &j.Attempts }),
-				JobLastError:  col("index_job", JobLastError, func(j *Job) any { return &j.LastError }),
-			}),
-			dao.Conflict[*Job, JobField, noSort, string](JobWorkspace, JobPath),
-			dao.SortMap[*Job, JobField, noSort, string](map[noSort]string{ByPath: `"index_job"."path"`, BySeq: `"index_job"."seq"`})),
-		changes: dao.New[*Change, ChangeField, noSort, int64](c,
-			dao.Table[*Change, ChangeField, noSort, int64]("change"),
-			dao.Fields[*Change, ChangeField, noSort, int64](map[ChangeField]dao.Field[*Change]{
-				ChangeWorkspace:  col("change", ChangeWorkspace, func(x *Change) any { return &x.WorkspaceID }),
-				ChangeSeq:        col("change", ChangeSeq, func(x *Change) any { return &x.Seq }),
-				ChangePath:       col("change", ChangePath, func(x *Change) any { return &x.Path }),
-				ChangeOp:         col("change", ChangeOp, func(x *Change) any { return &x.Op }),
-				ChangeGeneration: col("change", ChangeGeneration, func(x *Change) any { return &x.Generation }),
-				ChangeAt:         col("change", ChangeAt, func(x *Change) any { return &x.At }),
-			}),
-			dao.SortMap[*Change, ChangeField, noSort, int64](map[noSort]string{BySeq: `"change"."seq"`})),
 		events: dao.New[*Event, EventField, noSort, int64](c,
 			dao.Table[*Event, EventField, noSort, int64]("event"),
 			dao.ID[*Event, EventField, noSort, int64](EventSeq),
@@ -927,50 +459,4 @@ func newTables(c dao.DataConn) *tables {
 			}),
 			dao.SortMap[*Event, EventField, noSort, int64](map[noSort]string{BySeq: `"event"."seq"`})),
 	}
-}
-
-// docValues is doc_tag or doc_alias: one declaration, two tables.
-func docValues(c dao.DataConn, table, valueCol string) *dao.Schema[*DocValue, DocValueField, noSort, int64] {
-	return dao.New[*DocValue, DocValueField, noSort, int64](c,
-		dao.Table[*DocValue, DocValueField, noSort, int64](table),
-		dao.Fields[*DocValue, DocValueField, noSort, int64](map[DocValueField]dao.Field[*DocValue]{
-			DocValueWorkspace: col(table, DocValueWorkspace, func(v *DocValue) any { return &v.WorkspaceID }),
-			DocValueDoc:       col(table, DocValueDoc, func(v *DocValue) any { return &v.DocID }),
-			DocValueValue:     col(table, valueCol, func(v *DocValue) any { return &v.Value }),
-		}),
-		dao.Conflict[*DocValue, DocValueField, noSort, int64](DocValueWorkspace, DocValueValue, DocValueDoc),
-		dao.SortMap[*DocValue, DocValueField, noSort, int64](map[noSort]string{ByKey: `"` + table + `"."` + valueCol + `"`}))
-}
-
-// links is the link table joined to the document at one end: dst_doc for the
-// targets of a document's links (a LEFT JOIN, since a link may resolve to
-// none), src_doc for the sources of its backlinks.
-func links(c dao.DataConn, end string, left bool) *dao.Schema[*Link, LinkField, LinkSort, int64] {
-	join := innerJoin("document", "id", "link", end)
-	if left {
-		join = leftJoin("document", "id", "link", end)
-	}
-	return dao.New[*Link, LinkField, LinkSort, int64](c,
-		dao.Table[*Link, LinkField, LinkSort, int64]("link"),
-		dao.ID[*Link, LinkField, LinkSort, int64](LinkID),
-		dao.Fields[*Link, LinkField, LinkSort, int64](map[LinkField]dao.Field[*Link]{
-			LinkID:        col("link", LinkID, func(l *Link) any { return &l.ID }),
-			LinkWorkspace: col("link", LinkWorkspace, func(l *Link) any { return &l.WorkspaceID }),
-			LinkSrc:       col("link", LinkSrc, func(l *Link) any { return &l.SrcDoc }),
-			LinkGenFrom:   col("link", LinkGenFrom, func(l *Link) any { return &l.GenFrom }),
-			LinkGenTo:     col("link", LinkGenTo, func(l *Link) any { return &l.GenTo }),
-			LinkRaw:       col("link", LinkRaw, func(l *Link) any { return &l.Raw }),
-			LinkName:      col("link", LinkName, func(l *Link) any { return &l.Name }),
-			LinkDst:       col("link", LinkDst, func(l *Link) any { return &l.DstDoc }),
-			LinkAnchor:    col("link", LinkAnchor, func(l *Link) any { return &l.Anchor }),
-			LinkKind:      col("link", LinkKind, func(l *Link) any { return &l.Kind }),
-			LinkOtherPath: {Expr: dao.Coalesce(dao.T("document", "path"), dao.SQL("''")), Join: JoinOther, ReadOnly: true,
-				Scan: func(l *Link) any { return &l.OtherPath }},
-		}),
-		dao.OptionalJoinExpr[*Link, LinkField, LinkSort, int64](JoinOther, join),
-		dao.SortMap[*Link, LinkField, LinkSort, int64](map[LinkSort]string{
-			LinkByID:        `"link"."id"`,
-			LinkByOtherPath: `"document"."path", "link"."id"`,
-		}),
-		dao.JoinForSort[*Link, LinkField, LinkSort, int64](LinkByOtherPath, JoinOther))
 }

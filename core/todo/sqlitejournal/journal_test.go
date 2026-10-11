@@ -1,22 +1,50 @@
-package store
+package sqlitejournal_test
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/yongjohnlee80/golib/dao"
+	"github.com/yongjohnlee80/golib/dao/sqlite"
+
+	"github.com/yongjohnlee80/autodoc/core/store"
 	"github.com/yongjohnlee80/autodoc/core/todo"
+	"github.com/yongjohnlee80/autodoc/core/todo/sqlitejournal"
 	"github.com/yongjohnlee80/autodoc/core/todo/todotest"
 )
 
+// openStore is a new store, closed when t ends.
+func openStore(t *testing.T) *store.Store {
+	t.Helper()
+	s, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "autodoc.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	return s
+}
+
+// raw is a connection of its own to s's file, for a test to break the tables under the journal.
+func raw(t *testing.T, s *store.Store) dao.DataConn {
+	t.Helper()
+	db, err := sqlite.Open(context.Background(), "file:"+s.Path()+"?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
 // The SQLite journal behaves as the in-memory one does: the same suite runs on both.
 func TestTheTodoJournalConforms(t *testing.T) {
-	stores := map[todo.Journal]*Store{}
+	stores := map[todo.Journal]*store.Store{}
 	todotest.RunJournalConformance(t, todotest.Harness{
 		New: func(t *testing.T) todo.Journal {
 			s := openStore(t)
-			j := s.TodoJournal()
+			j := sqlitejournal.New(s)
 			stores[j] = s
 			return j
 		},
@@ -25,19 +53,19 @@ func TestTheTodoJournalConforms(t *testing.T) {
 			if err := s.Close(); err != nil {
 				t.Fatal(err)
 			}
-			s, err := Open(context.Background(), s.path)
+			s, err := store.Open(context.Background(), s.Path())
 			if err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = s.Close() })
-			j = s.TodoJournal()
+			j = sqlitejournal.New(s)
 			stores[j] = s
 			return j
 		},
 		// a trigger refuses every write of a root record: the last table a transaction writes, so the
 		// row, the snapshot and the store records are written before it fails
 		Break: func(t *testing.T, j todo.Journal) func() {
-			raw := stores[j].raw(t)
+			raw := raw(t, stores[j])
 			exec := func(q string) {
 				t.Helper()
 				if _, err := raw.ExecContext(context.Background(), q); err != nil {
@@ -61,8 +89,8 @@ func TestTheTodoJournalSurfacesAStorageFailure(t *testing.T) {
 	ctx := context.Background()
 	when := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
 	s := openStore(t)
-	j := s.TodoJournal()
-	raw := s.raw(t)
+	j := sqlitejournal.New(s)
+	raw := raw(t, s)
 	exec := func(q string) {
 		t.Helper()
 		if _, err := raw.ExecContext(ctx, q); err != nil {
@@ -193,7 +221,7 @@ func TestTheTodoJournalSurfacesAStorageFailure(t *testing.T) {
 // The log's lookups go through its index, not a scan of every store's rows.
 func TestTheTodoLogLookupsUseTheirIndex(t *testing.T) {
 	s := openStore(t)
-	raw := s.raw(t)
+	raw := raw(t, s)
 	for _, q := range []string{
 		"SELECT seq FROM todo_change WHERE store = 'A' AND state IN ('pending', 'staged') ORDER BY seq",
 		"SELECT seq FROM todo_change WHERE store = 'A' AND state = 'committed' AND seq > 5 ORDER BY seq LIMIT 10",

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"testing"
 	"time"
 
@@ -233,114 +232,21 @@ func TestWorkspaces_AddListRenameRemove(t *testing.T) {
 	}
 }
 
-// accessors is every Scope accessor, by the table it reaches.
+// accessors is every Scope accessor the store keeps for its own tables, by the table it reaches.
+// The index's tables are its own, declared through the seam: core/index tests their scoping, and
+// that every workspace-owned table in the catalog has an accessor.
 func accessors(sc *Scope, tx *Tx) map[string]dao.Named {
 	return map[string]dao.Named{
-		"workspace_pattern": sc.Patterns(tx), "document": sc.Documents(tx), "chunk": sc.Chunks(tx),
-		"doc_tag": sc.Tags(tx), "doc_alias": sc.Aliases(tx), "doc_name": sc.Names(tx),
-		"doc_facet": sc.Facets(tx), "doc_diagnostic": sc.Diagnostics(tx),
-		"link": sc.LinksOut(tx), "link_key": sc.LinkKeys(tx), "model": sc.Models(tx), "embedding": sc.Embeddings(tx),
-		"index_job": sc.Jobs(tx), "change": sc.Changes(tx), "workspace_connection": sc.Connections(tx),
+		"workspace_pattern": sc.Patterns(tx), "model": sc.Models(tx), "workspace_connection": sc.Connections(tx),
 	}
 }
 
-// Every table the live store has with a workspace_id column has a Scope
-// accessor: read from the store's catalog, not from the declarations, so a new
-// table a script adds is caught when it has none. chunk_fts is the full-text
-// index, reached only through Chunks' join.
-func TestEveryWorkspaceOwnedTableHasAScopeAccessor(t *testing.T) {
-	ctx := context.Background()
-	s := openStore(t)
-	tables, err := dao.ListTables(ctx, s.r, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var owned []string
-	for _, tb := range tables {
-		cols, err := dao.ListColumns(ctx, s.r, "", tb.Name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, c := range cols {
-			if c.Name == wsCol && tb.Name != "chunk_fts" {
-				owned = append(owned, tb.Name)
-			}
-		}
-	}
-	if len(owned) < 10 {
-		t.Fatalf("the catalog shows %d workspace-owned tables (%v): this test would show nothing", len(owned), owned)
-	}
-	err = s.Read(ctx, func(tx *Tx) error {
-		have := accessors(s.Workspace(1), tx)
-		for _, name := range owned {
-			if _, ok := have[name]; !ok {
-				t.Errorf("table %s carries workspace_id and has no Scope accessor", name)
-			}
-		}
-		for name, d := range have {
-			if d.Name() != name {
-				t.Errorf("the accessor for %s reaches %s", name, d.Name())
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sort.Strings(owned)
-	t.Logf("workspace-owned: %v", owned)
-}
-
-// seed writes one row into every workspace-owned table through sc.
+// seed writes one row into each of the store's own workspace-owned tables through sc.
 func seed(t *testing.T, s *Store, sc *Scope) {
 	t.Helper()
 	err := s.Write(context.Background(), func(tx *Tx) error {
-		doc, err := sc.Documents(tx).Set(DocPath, "n.md").Set(DocVersion, "v").Set(DocActiveGen, int64(1)).
-			Set(DocIndexer, "i").Set(DocIndexedAt, int64(0)).Insert()
-		if err != nil {
-			return fmt.Errorf("document: %w", err)
-		}
-		if _, err := sc.Chunks(tx).Set(ChunkDoc, doc).Set(ChunkHash, []byte{1}).Set(ChunkTextHash, []byte{1}).
-			Set(ChunkGenFrom, int64(1)).Set(ChunkOrd, int64(0)).Set(ChunkBreadcrumb, "").Set(ChunkBody, "zebra").
-			Set(ChunkTitle, "").Set(ChunkTags, "").Set(ChunkByteStart, int64(0)).Set(ChunkByteEnd, int64(1)).Insert(); err != nil {
-			return fmt.Errorf("chunk: %w", err)
-		}
-		if err := sc.TagBatch(tx).Add(map[DocValueField]any{DocValueDoc: doc, DocValueValue: "t"}).Flush(); err != nil {
-			return fmt.Errorf("tag: %w", err)
-		}
-		if err := sc.AliasBatch(tx).Add(map[DocValueField]any{DocValueDoc: doc, DocValueValue: "a"}).Flush(); err != nil {
-			return fmt.Errorf("alias: %w", err)
-		}
-		if err := sc.NameBatch(tx).Add(map[DocNameField]any{NameKey: "n", NameDoc: doc, NameIsPath: int64(1)}).Flush(); err != nil {
-			return fmt.Errorf("name: %w", err)
-		}
-		if err := sc.FacetBatch(tx).Add(map[FacetField]any{FacetDoc: doc, FacetName: "status", FacetValue: "active"}).Flush(); err != nil {
-			return fmt.Errorf("facet: %w", err)
-		}
-		if err := sc.DiagnosticBatch(tx).Add(map[DiagnosticField]any{DiagDoc: doc, DiagOrd: int64(0), DiagField: "type",
-			DiagLine: int64(1), DiagRule: "required", DiagMessage: "type is required"}).Flush(); err != nil {
-			return fmt.Errorf("diagnostic: %w", err)
-		}
-		link, err := sc.LinksOut(tx).Set(LinkSrc, doc).Set(LinkGenFrom, int64(1)).Set(LinkRaw, "[[x]]").
-			Set(LinkName, "x").Set(LinkKind, "wikilink").Insert()
-		if err != nil {
-			return fmt.Errorf("link: %w", err)
-		}
-		if err := sc.LinkKeyBatch(tx).Add(map[LinkKeyField]any{LinkKeyLink: link, LinkKeyOrd: int64(0), LinkKeyKey: "x"}).Flush(); err != nil {
-			return fmt.Errorf("link_key: %w", err)
-		}
 		if _, err := sc.Models(tx).Set(ModelFP, "m").Set(ModelActive, int64(1)).Insert(); err != nil {
 			return fmt.Errorf("model: %w", err)
-		}
-		if err := sc.EmbeddingBatch(tx).Add(map[EmbeddingField]any{EmbTextHash: []byte{1}, EmbModel: "m", EmbBits: []byte{0}, EmbF32: []byte{0}}).Flush(); err != nil {
-			return fmt.Errorf("embedding: %w", err)
-		}
-		if _, err := sc.Jobs(tx).Set(JobPath, "n.md").Set(JobSeq, int64(1)).Insert(); err != nil {
-			return fmt.Errorf("job: %w", err)
-		}
-		if _, err := sc.Changes(tx).Set(ChangeSeq, int64(1)).Set(ChangePath, "n.md").Set(ChangeOp, "upsert").
-			Set(ChangeGeneration, int64(1)).Set(ChangeAt, int64(0)).Insert(); err != nil {
-			return fmt.Errorf("change: %w", err)
 		}
 		if _, err := sc.Connections(tx).Set(ConnRole, RoleSource).Set(ConnEngine, EngineSQLite).Set(ConnDSN, []byte{1}).
 			Set(ConnUpdatedAt, int64(0)).Insert(); err != nil {
@@ -414,69 +320,6 @@ func TestEveryAccessorStaysInsideItsWorkspace(t *testing.T) {
 		if n != 1 {
 			t.Errorf("after B's deletes, A's %s has %d rows, want 1", name, n)
 		}
-	}
-}
-
-// Every declared join stays inside the workspace: A and B hold the same rows,
-// the same text hash included, and B's vector has other bytes. Through A's
-// scope, a join returns A's one row, never B's with it. On SQLite a document id
-// is the store's own, so only the vector's join, keyed by text, could reach
-// another workspace; the rest are checked as the same net.
-func TestEveryJoinStaysInsideItsWorkspace(t *testing.T) {
-	ctx := context.Background()
-	s := openStore(t)
-	a, _ := s.AddWorkspace(ctx, "a", "/a", nil, nil)
-	b, _ := s.AddWorkspace(ctx, "b", "/b", nil, nil)
-	A, B := s.Workspace(a.ID), s.Workspace(b.ID)
-	seed(t, s, A)
-	seed(t, s, B)
-	if err := s.Write(ctx, func(tx *Tx) error {
-		return B.Embeddings(tx).Set(EmbBits, []byte{2}).Update()
-	}); err != nil {
-		t.Fatal(err)
-	}
-	err := s.Read(ctx, func(tx *Tx) error {
-		vec, err := A.Chunks(tx).Join(JoinEmbedding).Select(ChunkID, ChunkEmbBits)
-		if err != nil {
-			return err
-		}
-		if len(vec) != 1 || fmt.Sprint(vec[0].EmbBits) != "[0]" {
-			var bits []string
-			for _, c := range vec {
-				bits = append(bits, fmt.Sprint(c.EmbBits))
-			}
-			t.Errorf("A's chunk joined to vectors %v, want only A's [0]", bits)
-		}
-		for name, n := range map[string]func() (int, error){
-			"chunk→document": func() (int, error) {
-				r, err := A.Chunks(tx).Join(JoinDocument).Select(ChunkID, ChunkDocPath)
-				return len(r), err
-			},
-			"doc_name→document": func() (int, error) {
-				r, err := A.Names(tx).Join(JoinDocument).Select(NameDoc, NameDocPath)
-				return len(r), err
-			},
-			"link→target": func() (int, error) {
-				r, err := A.LinksOut(tx).Join(JoinOther).Select(LinkID, LinkOtherPath)
-				return len(r), err
-			},
-			"link→source": func() (int, error) {
-				r, err := A.LinksIn(tx).Join(JoinOther).Select(LinkID, LinkOtherPath)
-				return len(r), err
-			},
-		} {
-			got, err := n()
-			if err != nil {
-				return fmt.Errorf("%s: %w", name, err)
-			}
-			if got != 1 {
-				t.Errorf("%s through A's scope: %d rows, want A's 1", name, got)
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 }
 

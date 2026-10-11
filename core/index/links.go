@@ -26,14 +26,14 @@ const (
 	ReasonAmbiguous = "ambiguous" // several do, at the same depth
 )
 
-// linkT is one link a file makes. name is what resolution looks up: for a wikilink or an embed the
+// DocLink is one link a file makes. Name is what resolution looks up: for a wikilink or an embed the
 // lowercased page name without ".md", after a '/' when it is a relative path (which names one path,
 // never a file name elsewhere); for a markdown link the workspace path it reaches.
-type linkT struct {
-	raw, name, anchor, kind string
-	// keys are a relation link's names, tried in order, name being the first; nil for a body link,
+type DocLink struct {
+	Raw, Name, Anchor, Kind string
+	// Keys are a relation link's names, tried in order, Name being the first; nil for a body link,
 	// which has the one name
-	keys []string
+	Keys []string
 }
 
 // attachments are the file types Obsidian opens that are not files
@@ -52,8 +52,8 @@ var attachments = map[string]bool{
 // dots: "Meeting 2024.05.01"); a markdown link, which names files of every kind (a KB links to its
 // code), only with ".md" or no extension. Either counts when eligible (nil: nothing) indexes it,
 // judged on the workspace path for a path, and on the name as written for a wikilink by name.
-func extractLinks(doc *markdown.Document, p string, eligible func(string) bool) []linkT {
-	var out []linkT
+func extractLinks(doc *markdown.Document, p string, eligible func(string) bool) []DocLink {
+	var out []DocLink
 	indexed := func(target string) bool { return eligible != nil && eligible(target) }
 	wikiFile := func(page string) bool { return !attachments[strings.ToLower(path.Ext(page))] || indexed(page) }
 	targetsFile := func(target string) bool {
@@ -93,11 +93,11 @@ func extractLinks(doc *markdown.Document, p string, eligible func(string) bool) 
 				if c.Kind == markdown.KindEmbed {
 					kind = LinkEmbed
 				}
-				out = append(out, linkT{raw: string(doc.Source[c.Span.Start:c.Span.End]), name: name, anchor: anchor, kind: kind})
+				out = append(out, DocLink{Raw: string(doc.Source[c.Span.Start:c.Span.End]), Name: name, Anchor: anchor, Kind: kind})
 				continue
 			case markdown.KindLink:
 				if target, anchor, ok := localTarget(p, string(c.Dest)); ok && targetsFile(target) {
-					out = append(out, linkT{raw: string(doc.Source[c.Span.Start:c.Span.End]), name: target, anchor: anchor, kind: LinkMarkdown})
+					out = append(out, DocLink{Raw: string(doc.Source[c.Span.Start:c.Span.End]), Name: target, Anchor: anchor, Kind: LinkMarkdown})
 				}
 			}
 			walk(c)
@@ -198,7 +198,7 @@ func markdownNames(p string) []string {
 func (s *Store) resolve(tx *store.Tx, kind, name string) (dst int64, reason string, err error) {
 	if kind == LinkMarkdown {
 		for _, p := range []string{name, name + ".md"} {
-			d, err := s.sc.Documents(tx).With(store.DocPath, p).Get(store.DocID)
+			d, err := s.documents(tx).With(DocPath, p).Get(DocID)
 			if err == nil {
 				return d.ID, "", nil
 			}
@@ -211,11 +211,11 @@ func (s *Store) resolve(tx *store.Tx, kind, name string) (dst int64, reason stri
 		}
 		return 0, ReasonMissing, nil
 	}
-	q := s.sc.Names(tx)
+	q := s.names(tx)
 	if strings.HasPrefix(name, "/") {
-		q, name = q.With(store.NameIsPath, int64(1)), name[1:]
+		q, name = q.With(NameIsPath, int64(1)), name[1:]
 	}
-	rows, err := q.With(store.NameKey, name).Select(store.NameDoc, store.NameDocPath, store.NameIsPath)
+	rows, err := q.With(NameKey, name).Select(NameDoc, NameDocPath, NameIsPath)
 	if err != nil {
 		return 0, "", err
 	}
@@ -247,7 +247,7 @@ func (s *Store) resolve(tx *store.Tx, kind, name string) (dst int64, reason stri
 
 // storedNames reads the wikilink names a document answers to, each with whether it is the path.
 func (s *Store) storedNames(tx *store.Tx, docID int64) (map[string]bool, error) {
-	rows, err := s.sc.Names(tx).With(store.NameDoc, docID).Select(store.NameKey, store.NameIsPath)
+	rows, err := s.names(tx).With(NameDoc, docID).Select(NameKey, NameIsPath)
 	if err != nil {
 		return nil, err
 	}
@@ -274,17 +274,17 @@ func (s *Store) writeNames(tx *store.Tx, docID int64, names []docName) ([]string
 	if err != nil {
 		return nil, err
 	}
-	if err := s.sc.Names(tx).With(store.NameDoc, docID).Delete(); err != nil {
+	if err := s.names(tx).With(NameDoc, docID).Delete(); err != nil {
 		return nil, err
 	}
 	var changed []string
-	b := s.sc.NameBatch(tx)
+	b := s.nameBatch(tx)
 	for _, n := range names {
 		isPath := int64(0)
 		if n.isPath {
 			isPath = 1
 		}
-		b.Add(map[store.DocNameField]any{store.NameKey: n.key, store.NameDoc: docID, store.NameIsPath: isPath})
+		b.Add(map[DocNameField]any{NameKey: n.key, NameDoc: docID, NameIsPath: isPath})
 		if wasPath, ok := old[n.key]; !ok || wasPath != n.isPath {
 			changed = append(changed, linkNames(n.key, n.isPath || wasPath)...)
 		}
@@ -318,7 +318,7 @@ func (s *Store) resolveKeys(tx *store.Tx, keys []string) (dst int64, reason stri
 
 // keysOf reads a relation link's names, in order.
 func (s *Store) keysOf(tx *store.Tx, linkID int64) ([]string, error) {
-	rows, err := s.sc.LinkKeys(tx).With(store.LinkKeyLink, linkID).Select(store.LinkKeyOrd, store.LinkKeyKey)
+	rows, err := s.linkKeys(tx).With(LinkKeyLink, linkID).Select(LinkKeyOrd, LinkKeyKey)
 	if err != nil {
 		return nil, err
 	}
@@ -346,17 +346,17 @@ func (s *Store) resolveStored(tx *store.Tx, linkID int64, kind, name string) (ds
 
 // writeLinks replaces a document's links with links, each resolved as the index stands; a relation
 // link's names go in link_key, in order, so it is found again when any of them changes.
-func (s *Store) writeLinks(tx *store.Tx, docID, gen int64, links []linkT) error {
-	if err := s.sc.LinksOut(tx).With(store.LinkSrc, docID).Delete(); err != nil {
+func (s *Store) writeLinks(tx *store.Tx, docID, gen int64, links []DocLink) error {
+	if err := s.linksOut(tx).With(LinkSrc, docID).Delete(); err != nil {
 		return err
 	}
 	for _, l := range links {
 		var dst int64
 		var err error
-		if l.keys != nil {
-			dst, _, err = s.resolveKeys(tx, l.keys)
+		if l.Keys != nil {
+			dst, _, err = s.resolveKeys(tx, l.Keys)
 		} else {
-			dst, _, err = s.resolve(tx, l.kind, l.name)
+			dst, _, err = s.resolve(tx, l.Kind, l.Name)
 		}
 		if err != nil {
 			return err
@@ -365,18 +365,18 @@ func (s *Store) writeLinks(tx *store.Tx, docID, gen int64, links []linkT) error 
 		if dst != 0 {
 			d = dst
 		}
-		if l.anchor != "" {
-			anchor = l.anchor
+		if l.Anchor != "" {
+			anchor = l.Anchor
 		}
-		id, err := s.sc.LinksOut(tx).Set(store.LinkSrc, docID).Set(store.LinkGenFrom, gen).Set(store.LinkRaw, l.raw).
-			Set(store.LinkName, l.name).Set(store.LinkDst, d).Set(store.LinkAnchor, anchor).Set(store.LinkKind, l.kind).Insert()
+		id, err := s.linksOut(tx).Set(LinkSrc, docID).Set(LinkGenFrom, gen).Set(LinkRaw, l.Raw).
+			Set(LinkName, l.Name).Set(LinkDst, d).Set(LinkAnchor, anchor).Set(LinkKind, l.Kind).Insert()
 		if err != nil {
 			return err
 		}
-		if len(l.keys) > 0 {
-			b := s.sc.LinkKeyBatch(tx)
-			for i, k := range l.keys {
-				b.Add(map[store.LinkKeyField]any{store.LinkKeyLink: id, store.LinkKeyOrd: int64(i), store.LinkKeyKey: k})
+		if len(l.Keys) > 0 {
+			b := s.linkKeyBatch(tx)
+			for i, k := range l.Keys {
+				b.Add(map[LinkKeyField]any{LinkKeyLink: id, LinkKeyOrd: int64(i), LinkKeyKey: k})
 			}
 			if err := b.Flush(); err != nil {
 				return err
@@ -393,10 +393,10 @@ func (s *Store) reresolve(tx *store.Tx, names []string, docID int64) error {
 		return nil
 	}
 	// two probes, not one OR: each is one of the link table's indexes, which lead with the workspace
-	var rows []*store.Link
+	var rows []*LinkRow
 	seen := map[int64]bool{}
 	probe := func(cond dao.Predicate) error {
-		got, err := s.sc.LinksOut(tx).WithPredicate(cond).Select(store.LinkID, store.LinkKind, store.LinkName, store.LinkDst)
+		got, err := s.linksOut(tx).WithPredicate(cond).Select(LinkID, LinkKind, LinkName, LinkDst)
 		for _, r := range got {
 			if !seen[r.ID] {
 				seen[r.ID] = true
@@ -419,7 +419,7 @@ func (s *Store) reresolve(tx *store.Tx, names []string, docID int64) error {
 			return err
 		}
 		// a relation link is found by any of its names, not only the first
-		keyed, err := s.sc.LinkKeys(tx).WithPredicate(dao.In(`"link_key"."key"`, vs)).Select(store.LinkKeyLink)
+		keyed, err := s.linkKeys(tx).WithPredicate(dao.In(`"link_key"."key"`, vs)).Select(LinkKeyLink)
 		if err != nil {
 			return err
 		}
@@ -451,7 +451,7 @@ func (s *Store) reresolve(tx *store.Tx, names []string, docID int64) error {
 		if dst != 0 {
 			d = dst
 		}
-		if err := s.sc.LinksOut(tx).With(store.LinkID, r.ID).Set(store.LinkDst, d).Update(); err != nil {
+		if err := s.linksOut(tx).With(LinkID, r.ID).Set(LinkDst, d).Update(); err != nil {
 			return err
 		}
 	}

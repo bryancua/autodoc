@@ -20,7 +20,6 @@ import (
 	"github.com/yongjohnlee80/autodoc/core/follow"
 	"github.com/yongjohnlee80/autodoc/core/index"
 	"github.com/yongjohnlee80/autodoc/core/registrations"
-	"github.com/yongjohnlee80/autodoc/core/schema"
 	"github.com/yongjohnlee80/autodoc/core/store"
 	"github.com/yongjohnlee80/autodoc/core/workspace"
 	"github.com/yongjohnlee80/autodoc/rpc"
@@ -94,10 +93,30 @@ func (m *Workspaces) warming(name string) []string {
 type served struct {
 	id       int64
 	override string // the provider it uses instead of the daemon's, by name; "" for the daemon's
-	w        *rpc.Workspace
-	ctx      context.Context
-	halt     func() // stops its indexer and follower; its root stays open; nil for one not opened
-	stop     func() // halts it and closes its root; nil for one not opened
+	// root, include and exclude are as it was opened with; err is why it could not be opened
+	root             string
+	include, exclude []string
+	err              error
+	// the rest is nil or zero for one that could not be opened
+	ix            *index.Indexer
+	docs          *docs.Docs
+	follower      *follow.Follower
+	schema        *schemaHolder
+	text          *textExtensions
+	sectionTokens int    // as stored when it started
+	policy        string // as stored when it started
+	provider      rpc.ProviderChoice
+	ctx           context.Context
+	halt          func() // stops its indexer and follower; its root stays open; nil for one not opened
+	stop          func() // halts it and closes its root; nil for one not opened
+	// view is the workspace as rpc reads it, under its name now (m.mu): a rename gives it a new
+	// view, so a request already holding the old one keeps the name it began with
+	view *view
+}
+
+// spec is s as a config workspace, under its name now, for serving it again.
+func (s *served) spec() config.Workspace {
+	return config.Workspace{Name: s.view.name, Root: s.root, Include: s.include, Exclude: s.exclude}
 }
 
 // Options are how the daemon serves a workspace.
@@ -158,13 +177,13 @@ func (m *Workspaces) OpenAll() error {
 		if !pastDefault(w.Exclude) {
 			continue
 		}
-		if err := m.db.SetWorkspaceExclude(m.ctx, w.ID, config.DefaultExclude); err != nil {
+		if err := m.db.SetWorkspaceExclude(m.ctx, w.ID, config.DefaultExclude()); err != nil {
 			logger.Warning(m.opts.Log, err, "workspace kept its old default exclude: "+w.Name)
 			continue
 		}
-		ws[i].Exclude = config.DefaultExclude
+		ws[i].Exclude = config.DefaultExclude()
 		logger.Info(m.opts.Log, logger.Fields{"event": "workspace moved to the current default exclude",
-			"workspace": w.Name, "exclude": config.DefaultExclude})
+			"workspace": w.Name, "exclude": config.DefaultExclude()})
 	}
 	for _, w := range ws {
 		s := m.serve(w.ID, config.Workspace{Name: w.Name, Root: w.Root, Include: w.Include, Exclude: w.Exclude})
@@ -174,10 +193,6 @@ func (m *Workspaces) OpenAll() error {
 	}
 	m.queue.start()
 	return nil
-}
-
-func (m *Workspaces) warmingOf(name string) func() []string {
-	return func() []string { return m.warming(name) }
 }
 
 func pastDefault(exclude []string) bool {
@@ -194,7 +209,8 @@ func (m *Workspaces) serve(id int64, c config.Workspace) *served {
 	s, err := m.start(id, c)
 	if err != nil {
 		logger.Warning(m.opts.Log, err, "workspace not served: "+c.Name)
-		s = &served{id: id, w: &rpc.Workspace{Name: c.Name, Root: c.Root, Include: c.Include, Exclude: c.Exclude, Err: err}}
+		s = &served{id: id, root: c.Root, include: c.Include, exclude: c.Exclude, err: err}
+		s.view = &view{m: m, s: s, name: c.Name}
 	}
 	return s
 }
@@ -219,10 +235,10 @@ func (m *Workspaces) start(id int64, c config.Workspace) (*served, error) {
 		return nil, err
 	}
 	if c.Include == nil {
-		c.Include = config.DefaultInclude
+		c.Include = config.DefaultInclude()
 	}
 	if c.Exclude == nil {
-		c.Exclude = config.DefaultExclude
+		c.Exclude = config.DefaultExclude()
 	}
 	schemaPath, err := m.db.SchemaPath(m.ctx, id)
 	if err != nil {
@@ -244,12 +260,14 @@ func (m *Workspaces) start(id int64, c config.Workspace) (*served, error) {
 	sh.setPath(schemaPath)
 	sh.watch(m.ctx, schemaPoll)
 	override, provider, providerErr := m.providerOf(id)
-	ix := index.NewIndexer(index.Open(m.db, id), ws.FS, index.Options{Match: ws.Matcher.Match, Provider: provider,
-		BatchDelay: m.opts.BatchDelay, Logger: m.opts.Log, Workspace: c.Name, ExternalEmbedding: true,
-		OnEmbeddingWork: func() { m.queue.wakeWorkspace(c.Name) }, Schema: sh.get, TextExtensions: text.load,
-		Registrations: m.opts.Registrations, Rank: m.opts.Rank, Now: m.db.Clock()})
+	ix := index.New(index.NewStore(m.db, id), ws.FS,
+		index.WithMatch(ws.Matcher.Match), index.WithProvider(provider), index.WithBatching(0, m.opts.BatchDelay),
+		index.WithLogger(m.opts.Log), index.WithWorkspace(c.Name), index.WithSchema(sh.get),
+		index.WithTextExtensions(text.load), index.WithRegistrations(m.opts.Registrations), index.WithRank(m.opts.Rank),
+		index.WithClock(m.db.Clock()), index.WithExternalEmbedding(func() { m.queue.wakeWorkspace(c.Name) }))
 	ix.SetSemanticPaused(!m.queue.setPolicy(c.Name, policy))
-	f := follow.New(ws.FS, ix, ix, follow.Options{PollInterval: m.opts.Poll, Match: ws.Matcher.Match, Excluded: ws.Matcher.Excluded})
+	f := follow.New(ws.FS, ix, ix, follow.WithPollInterval(m.opts.Poll), follow.WithMatch(ws.Matcher.Match),
+		follow.WithExcluded(ws.Matcher.Excluded))
 	ix.SetRescanner(f) // index.reindex(ws, "") finds the files the index lacks through the follower
 	ctx, cancel := context.WithCancel(m.ctx)
 	var wg sync.WaitGroup
@@ -272,36 +290,14 @@ func (m *Workspaces) start(id int64, c config.Workspace) (*served, error) {
 		halt()
 		_ = ws.Close()
 	}
-	w := &rpc.Workspace{Name: c.Name, Root: c.Root, Include: c.Include, Exclude: c.Exclude, SectionTokens: sectionTokens,
-		EmbeddingPolicy: policy,
-		EmbeddingMode: func() string {
-			p, err := m.db.EmbeddingPolicy(context.Background(), id)
-			if err != nil {
-				return policy
-			}
-			return p
-		},
-		SectionSize: func() int {
-			n, err := m.db.SectionTokens(context.Background(), id)
-			if err != nil {
-				return sectionTokens
-			}
-			return n
-		},
-		Index: ix, Docs: docs.New(ws.FS, ws.Matcher.Match, docs.WithTextExtensions(text.load), docs.WithRegistrations(m.opts.Registrations.Kinds()),
+	s := &served{id: id, override: override, root: c.Root, include: c.Include, exclude: c.Exclude,
+		ix: ix, docs: docs.New(ws.FS, ws.Matcher.Match, docs.WithTextExtensions(text.load), docs.WithRegistrations(m.opts.Registrations.Kinds()),
 			docs.WithDeriver(m.opts.Registrations)),
-		Following: f.Status, Warming: m.warmingOf(c.Name),
-		TextExtensions: text.load,
-		TextCollisions: func() []string { return m.opts.Registrations.Collisions(text.load()) },
-		Searched:       func() { m.queue.searchWorkspace(c.Name) },
-		EmbeddingQueue: func() (string, string) { return m.queue.queueState(c.Name) },
-		FrontmatterSchema: func() (*schema.Schema, rpc.SchemaStatus) {
-			s, _ := sh.get()
-			return s, sh.status()
-		},
-		Provider:  rpc.ProviderChoice{Override: override, Err: errText(providerErr)},
-		Databases: func() rpc.Databases { return m.databases(id) }}
-	return &served{id: id, override: override, w: w, ctx: ctx, halt: halt, stop: stop}, nil
+		follower: f, schema: sh, text: text, sectionTokens: sectionTokens, policy: policy,
+		provider: rpc.ProviderChoice{Override: override, Err: errText(providerErr)},
+		ctx:      ctx, halt: halt, stop: stop}
+	s.view = &view{m: m, s: s, name: c.Name}
+	return s, nil
 }
 
 // schemaHolder is workspace id's schema holder, made on its first start.
@@ -338,7 +334,7 @@ func (m *Workspaces) revalidate(id int64) {
 	var ix *index.Indexer
 	for _, s := range m.served {
 		if s.id == id && s.stop != nil {
-			ix = s.w.Index
+			ix = s.ix
 		}
 	}
 	m.mu.Unlock()
@@ -414,8 +410,7 @@ func (m *Workspaces) SetEmbedding(p embed.Provider) {
 		if restartHook != nil {
 			restartHook(name)
 		}
-		w := s.w
-		next := m.serve(s.id, config.Workspace{Name: w.Name, Root: w.Root, Include: w.Include, Exclude: w.Exclude})
+		next := m.serve(s.id, s.spec())
 		m.mu.Lock()
 		m.served[name] = next
 		delete(m.restarting, name)
@@ -437,8 +432,8 @@ func (m *Workspaces) SetSectionTokens(ctx context.Context, name string, tokens i
 	if err := m.db.SetWorkspaceSectionTokens(ctx, s.id, tokens); err != nil {
 		return err
 	}
-	if s.w.Index != nil {
-		if err := s.w.Index.Reindex(ctx, ""); err != nil { // never refused: only the store unread
+	if s.ix != nil {
+		if err := s.ix.Reindex(ctx, ""); err != nil { // never refused: only the store unread
 			logger.Warning(m.opts.Log, err, logger.Fields{"event": "index.reindex.failed", "workspace": name})
 		}
 	}
@@ -463,7 +458,7 @@ func (m *Workspaces) SetPatterns(ctx context.Context, name string, include, excl
 	if !ok {
 		return fmt.Errorf("%w: %s", store.ErrNoWorkspace, name)
 	}
-	candidate := config.Workspace{Name: name, Root: old.w.Root, Include: include, Exclude: exclude}
+	candidate := config.Workspace{Name: name, Root: old.root, Include: include, Exclude: exclude}
 	if err := checkRoot(candidate); err != nil {
 		return err
 	}
@@ -484,8 +479,8 @@ func (m *Workspaces) restartWithPatterns(ctx context.Context, name string, old *
 	}
 	next, err := m.start(old.id, candidate)
 	if err != nil {
-		rollbackErr := m.db.SetWorkspacePatterns(context.WithoutCancel(ctx), old.id, old.w.Include, old.w.Exclude)
-		restored := m.serve(old.id, config.Workspace{Name: name, Root: old.w.Root, Include: old.w.Include, Exclude: old.w.Exclude})
+		rollbackErr := m.db.SetWorkspacePatterns(context.WithoutCancel(ctx), old.id, old.include, old.exclude)
+		restored := m.serve(old.id, config.Workspace{Name: name, Root: old.root, Include: old.include, Exclude: old.exclude})
 		m.mu.Lock()
 		m.served[name] = restored
 		m.mu.Unlock()
@@ -503,11 +498,11 @@ func (m *Workspaces) Focus(name string) error {
 	m.mu.Lock()
 	s, ok := m.served[name]
 	m.mu.Unlock()
-	if !ok || s.w.Index == nil {
+	if !ok || s.ix == nil {
 		return store.ErrNoWorkspace
 	}
 	if m.queue.focusWorkspace(name) {
-		s.w.Index.SetSemanticPaused(false)
+		s.ix.SetSemanticPaused(false)
 	}
 	return nil
 }
@@ -533,8 +528,8 @@ func (m *Workspaces) SetEmbeddingPolicy(ctx context.Context, name, policy string
 // when the queue will not fill it.
 func (m *Workspaces) applyPolicy(name string, s *served, policy string) {
 	active := m.queue.setPolicy(name, policy)
-	if s.w.Index != nil {
-		s.w.Index.SetSemanticPaused(!active)
+	if s.ix != nil {
+		s.ix.SetSemanticPaused(!active)
 	}
 }
 
@@ -545,7 +540,7 @@ func (m *Workspaces) Replacing(ctx context.Context) string {
 	var ixs []*index.Indexer
 	for _, s := range m.served {
 		if s.stop != nil {
-			ixs = append(ixs, s.w.Index)
+			ixs = append(ixs, s.ix)
 		}
 	}
 	m.mu.Unlock()
@@ -571,30 +566,30 @@ func (m *Workspaces) StopAll() {
 	}
 }
 
-func (m *Workspaces) List() []*rpc.Workspace {
+func (m *Workspaces) List() []rpc.Workspace {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make([]*rpc.Workspace, 0, len(m.served))
+	out := make([]rpc.Workspace, 0, len(m.served))
 	for _, s := range m.served {
-		out = append(out, s.w)
+		out = append(out, s.view)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	sort.Slice(out, func(i, j int) bool { return out[i].Name() < out[j].Name() })
 	return out
 }
 
-func (m *Workspaces) Get(name string) (*rpc.Workspace, bool) {
+func (m *Workspaces) Get(name string) (rpc.Workspace, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s, ok := m.served[name]
 	if !ok {
 		return nil, false
 	}
-	return s.w, true
+	return s.view, true
 }
 
 // Add checks the workspace, records it, and serves it. The root must be a directory; the name and
 // the root must be the store's only ones.
-func (m *Workspaces) Add(ctx context.Context, c config.Workspace) (*rpc.Workspace, error) {
+func (m *Workspaces) Add(ctx context.Context, c config.Workspace) (rpc.Workspace, error) {
 	c, err := config.NormalizeWorkspace(c)
 	if err != nil {
 		return nil, err
@@ -626,7 +621,7 @@ func (m *Workspaces) Add(ctx context.Context, c config.Workspace) (*rpc.Workspac
 	m.mu.Unlock()
 	m.queue.start()
 	m.queue.wakeWorkspace(c.Name)
-	return s.w, nil
+	return s.view, nil
 }
 
 func checkRoot(c config.Workspace) error {
@@ -665,13 +660,8 @@ func (m *Workspaces) Rename(ctx context.Context, name, to string) error {
 
 // renameServed serves s, renamed in the store, under its new name. m.chg and m.mu are held.
 func (m *Workspaces) renameServed(name, to string, s *served) {
-	w := *s.w
-	w.Name = to
-	w.Warming = m.warmingOf(to)
-	w.Searched = func() { m.queue.searchWorkspace(to) }
-	w.EmbeddingQueue = func() (string, string) { return m.queue.queueState(to) }
+	s.view = &view{m: m, s: s, name: to}
 	m.queue.rename(name, to)
-	s.w = &w
 	delete(m.served, name)
 	m.served[to] = s
 }
@@ -696,8 +686,7 @@ func (m *Workspaces) Remove(ctx context.Context, name string) error {
 	err := m.db.RemoveWorkspace(ctx, s.id)
 	var back *served
 	if err != nil && !errors.Is(err, store.ErrNoWorkspace) {
-		w := s.w
-		back = m.serve(s.id, config.Workspace{Name: w.Name, Root: w.Root, Include: w.Include, Exclude: w.Exclude})
+		back = m.serve(s.id, s.spec())
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()

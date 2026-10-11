@@ -5,15 +5,19 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/yongjohnlee80/golib/dao/sqlite"
 	"github.com/yongjohnlee80/golib/errs"
+	"github.com/yongjohnlee80/golib/logger"
 
 	"github.com/yongjohnlee80/autodoc/core/config"
 	"github.com/yongjohnlee80/autodoc/core/index"
 	"github.com/yongjohnlee80/autodoc/core/store"
+	"github.com/yongjohnlee80/autodoc/core/workspace"
 )
 
 func ptr[T any](v T) *T { return &v }
@@ -70,8 +74,8 @@ func TestConfigure_AppliesEveryChangeAsItsVerbWould(t *testing.T) {
 	}
 	indexed(t, m, "docs", 2)
 	w, _ := m.Get("docs")
-	if w.SectionSize() != 256 || strings.Join(w.Include, ",") != "**/*.{md,txt}" {
-		t.Errorf("served with section %d, include %v", w.SectionSize(), w.Include)
+	if w.SectionTokens() != 256 || strings.Join(w.Include(), ",") != "**/*.{md,txt}" {
+		t.Errorf("served with section %d, include %v", w.SectionTokens(), w.Include())
 	}
 	list, err := db.Workspaces(context.Background())
 	if err != nil || len(list) != 1 || list[0].Name != "docs" || *list[0].SectionTokens != 256 {
@@ -157,7 +161,7 @@ func TestConfigure_ListsConnectionsWithoutTheirSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	w, _ := m.Get("kb")
-	d := w.Databases()
+	d, _ := w.Databases()
 	if d.Destination != store.DestinationPostgres || len(d.UID) != 32 || d.ViewArgs["LabelGroupID"] != "7" || len(d.Connections) != 1 {
 		t.Fatalf("databases %+v", d)
 	}
@@ -234,8 +238,8 @@ func TestConfigure_ARestartThatFailsTakesTheWholeSaveBack(t *testing.T) {
 	if !ok {
 		t.Fatal("kb is not served")
 	}
-	if served.SectionSize() != store.SectionTokensDefault || strings.Join(served.Include, ",") != "**/*.md" {
-		t.Errorf("served with section %d, include %v", served.SectionSize(), served.Include)
+	if served.SectionTokens() != store.SectionTokensDefault || strings.Join(served.Include(), ",") != "**/*.md" {
+		t.Errorf("served with section %d, include %v", served.SectionTokens(), served.Include())
 	}
 	indexed(t, m, "kb", 1)
 }
@@ -318,15 +322,54 @@ func TestConfigure_TheAbstractChunkRebuildsTheMarkdown(t *testing.T) {
 	}
 	id := mustID(t, m, "kb")
 	eventually(t, "a.md indexed with the abstract chunk", func() bool {
-		var version string
-		err := db.Read(context.Background(), func(tx *store.Tx) error {
-			d, err := db.Workspace(id).Documents(tx).With(store.DocPath, "a.md").Get(store.DocIndexer)
-			if err == nil {
-				version = d.Indexer
-			}
-			return err
-		})
+		version, _, err := index.NewStore(db, id).Identity(context.Background(), "a.md")
 		got, perr := index.ParseIdentity(version)
 		return err == nil && perr == nil && got.Abstract == "a1"
 	})
+}
+
+// A save that cannot finish what follows its write says so: new patterns on a root that is gone
+// are refused before anything is stored or restarted, and a new section size whose reindex cannot read the
+// documents is kept and logged as index.reindex.failed.
+func TestConfigure_SaysWhatItCouldNotDo(t *testing.T) {
+	log := &lockedLog{}
+	m, db := openWith(t, Options{Databases: true, Log: logger.New(logger.WithWriter(log))})
+	kbWith(t, m, map[string]string{"a.md": "# A\n"}, "**/*.md")
+	indexed(t, m, "kb", 1)
+	w, _ := m.Get("kb")
+
+	raw, err := sqlite.Open(context.Background(), "file:"+db.Path()+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = raw.Close() })
+	exec := func(q string) {
+		t.Helper()
+		if _, err := raw.ExecContext(context.Background(), q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	exec(`ALTER TABLE "document" RENAME TO "document_aside"`)
+	err = m.Configure(context.Background(), "kb", store.Changes{SectionTokens: ptr(256)})
+	exec(`ALTER TABLE "document_aside" RENAME TO "document"`)
+	if err != nil {
+		t.Fatalf("the section size was not saved: %v", err)
+	}
+	if !strings.Contains(log.String(), "index.reindex.failed") {
+		t.Errorf("the failed reindex is not in the log:\n%s", log.String())
+	}
+
+	if err := os.RemoveAll(w.Root()); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Configure(context.Background(), "kb", store.Changes{Include: ptr([]string{"**/*.txt"}), Exclude: ptr([]string{})}); !errors.Is(err, workspace.ErrNotADirectory) {
+		t.Errorf("new patterns on a root that is gone: %v; want ErrNotADirectory", err)
+	}
+	list, _ := db.Workspaces(context.Background())
+	if len(list) != 1 || !slices.Equal(list[0].Include, []string{"**/*.md"}) {
+		t.Errorf("the refused patterns were stored: %+v", list)
+	}
+	if now, _ := m.Get("kb"); now != w {
+		t.Error("the workspace was restarted: the root was not checked before the save")
+	}
 }

@@ -61,7 +61,7 @@ var benchVocabulary = strings.Fields(`storage search index chunk vector model qu
 // benchEnv indexes n generated files with the fake provider, every one semantic-ready.
 func benchEnv(b *testing.B, n int) *env {
 	b.Helper()
-	e := newEnv(b, Options{Provider: newFake("m", "a"), BatchDelay: time.Millisecond, BatchSize: 200})
+	e := newEnv(b, options{Provider: newFake("m", "a"), BatchDelay: time.Millisecond, BatchSize: 200})
 	var pc []string
 	for i := range n {
 		var body strings.Builder

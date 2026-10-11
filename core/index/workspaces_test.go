@@ -21,7 +21,7 @@ type served struct {
 // shareAStore opens one store and serves a workspace in it for each entry of files (a name, then
 // path/text pairs), each with its options, until the test ends; it returns once every one is
 // indexed, and semantic-ready when it has a provider.
-func shareAStore(t *testing.T, opts []Options, notes ...[]string) []served {
+func shareAStore(t *testing.T, opts []options, notes ...[]string) []served {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "autodoc.db"))
@@ -50,7 +50,7 @@ func shareAStore(t *testing.T, opts []Options, notes ...[]string) []served {
 		}
 		o := opts[i]
 		o.Match = testMatch
-		ix := NewIndexer(Open(db, row.ID), fsys, o)
+		ix := newIndexer(NewStore(db, row.ID), fsys, o)
 		go func() { _ = ix.Run(ctx); stops <- struct{}{} }()
 		for j := 1; j+1 < len(ns); j += 2 {
 			ix.Touch(ns[j])
@@ -96,7 +96,7 @@ func searchServed(t *testing.T, w served, q string, opts QueryOpts) []Hit {
 // workspace's best, and never another's.
 func TestLimitIsTheWorkspacesBest(t *testing.T) {
 	loud := "# Osprey osprey\n\nosprey osprey osprey osprey\n"
-	ws := shareAStore(t, []Options{{}, {}},
+	ws := shareAStore(t, []options{{}, {}},
 		[]string{"a", "quiet.md", "# Coast\n\nA note of the tide, the marsh and, once, an osprey among the gulls and terns.\n"},
 		[]string{"b", "loud1.md", loud, "loud2.md", loud, "loud3.md", loud})
 	hits := searchServed(t, ws[0], "osprey", QueryOpts{Limit: 1, Mode: ModeLexical})
@@ -110,7 +110,7 @@ func TestLimitIsTheWorkspacesBest(t *testing.T) {
 
 func TestSectionSizeRechunksOnlyItsWorkspace(t *testing.T) {
 	text := "# Big\n\n" + strings.Repeat("paragraph with many words for chunking.\n\n", 130)
-	ws := shareAStore(t, []Options{{}, {}}, []string{"a", "n.md", text}, []string{"b", "n.md", text})
+	ws := shareAStore(t, []options{{}, {}}, []string{"a", "n.md", text}, []string{"b", "n.md", text})
 	ctx := context.Background()
 	a, b := ws[0].ix, ws[1].ix
 	beforeA, beforeB := a.store.indexer(context.Background(), "n.md"), b.store.indexer(context.Background(), "n.md")
@@ -138,9 +138,9 @@ func TestSemanticReadsTheWorkspacesVectors(t *testing.T) {
 	pa, pb := newFake("m", "a"), newFake("m", "a")
 	pb.seed = "b" // the same model to the store, other vectors
 	text := "zebra\n"
-	ws := shareAStore(t, []Options{{Provider: pa}, {Provider: pb}},
+	ws := shareAStore(t, []options{{Provider: pa}, {Provider: pb}},
 		[]string{"a", "n.md", text}, []string{"b", "n.md", text})
-	alone := shareAStore(t, []Options{{Provider: newFake("m", "a")}}, []string{"a", "n.md", text})
+	alone := shareAStore(t, []options{{Provider: newFake("m", "a")}}, []string{"a", "n.md", text})
 	// through the code snapshot, once the one at the head answers
 	bySnapshot := func(w served) []Hit {
 		t.Helper()

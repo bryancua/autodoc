@@ -325,8 +325,7 @@ func (h *Host) preview(picker, p string, at int) {
 // The preview binds App.searchPreviewRendered to its renderedEnabled: an id inside the picker's
 // own file is not the host's to look up.
 func (h *Host) previewRendered(p string, read bool) {
-	k := h.kinds.Of(p, h.textExtensions())
-	h.set("App.searchPreviewRendered", read && (k == kind.Markdown || kind.Of(p, nil) == kind.Derived))
+	h.set("App.searchPreviewRendered", read && h.resolver().Of(p).Traits().ReadsAs == kind.Markdown)
 }
 
 // showPreview puts text in a picker's preview, the cursor at byte at: the position is moved away

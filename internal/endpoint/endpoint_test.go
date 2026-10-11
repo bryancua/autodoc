@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yongjohnlee80/autodoc/core/config"
 	"github.com/yongjohnlee80/autodoc/internal/endpoint"
 )
 
@@ -92,5 +93,52 @@ func TestCheckStore(t *testing.T) {
 	}
 	if mm.Error() == "" {
 		t.Error("the mismatch says nothing")
+	}
+}
+
+// TestTheStoresTempFilesGoBesideIt: SQLite's temporary files (a VACUUM's copy) are placed by
+// SQLITE_TMPDIR, set to the store's directory when the user set none, before any connection opens
+// (the driver takes the environment at the process's first): nothing is changed under a running
+// connection. A value the user set is kept.
+func TestTheStoresTempFilesGoBesideIt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "autodoc.db")
+	t.Setenv("SQLITE_TMPDIR", "")
+	endpoint.TempBeside(path)
+	if got := os.Getenv("SQLITE_TMPDIR"); got != filepath.Dir(path) {
+		t.Errorf("SQLITE_TMPDIR = %q, want the store's directory %q", got, filepath.Dir(path))
+	}
+	t.Setenv("SQLITE_TMPDIR", "/the/users/choice")
+	endpoint.TempBeside(path)
+	if got := os.Getenv("SQLITE_TMPDIR"); got != "/the/users/choice" {
+		t.Errorf("a SQLITE_TMPDIR the user set became %q", got)
+	}
+}
+
+// TestAPathThatDoesNotResolveIsSaid: with no home directory and no XDG directory, a path left to
+// its default does not resolve, and a mode asking for it (Paths, MakeStateDir, MakeDataDir) says
+// so instead of making anything; a socket path over the limit is refused the same way.
+func TestAPathThatDoesNotResolveIsSaid(t *testing.T) {
+	for _, d := range []string{"HOME", "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR"} {
+		t.Setenv(d, "")
+	}
+	dir := t.TempDir()
+	unresolved := &endpoint.Endpoints{Config: &config.Config{}}
+	if _, err := unresolved.Paths(); err == nil {
+		t.Error("Paths resolved a state directory with no home")
+	}
+	if err := unresolved.MakeStateDir(); err == nil {
+		t.Error("MakeStateDir made a state directory with no home")
+	}
+	if err := unresolved.MakeDataDir(); err == nil {
+		t.Error("MakeDataDir made a data directory with no home")
+	}
+	for name, s := range map[string]config.Server{
+		"a socket over the limit": {StateDir: dir, Socket: filepath.Join(dir, strings.Repeat("s", 120)+".sock")},
+		"a store with no home":    {StateDir: dir, Socket: filepath.Join(dir, "a.sock")},
+	} {
+		e := &endpoint.Endpoints{Config: &config.Config{Server: s}}
+		if _, err := e.Paths(); err == nil {
+			t.Errorf("%s: Paths resolved", name)
+		}
 	}
 }

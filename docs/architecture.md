@@ -26,7 +26,8 @@ The daemon never pushes: clients poll `sys.events` (and, for todos, `todos.chang
 | `core/schema` | frontmatter schemas: the KB's `schema.yaml` and the todo formats |
 | `core/docs` | versioned, conditional reads and writes of a workspace's files over a `vfs.FS` |
 | `core/index` | the indexer, links, graph, search |
-| `core/store` | the SQLite store: lease, migrations, the tables, the todo journal |
+| `core/store` | the SQLite store: lease, migrations, its tables, and the seam a module declares its own through |
+| `core/todo/sqlitejournal` | the todo system's Journal on the store, its tables declared through the seam |
 | `core/follow` | watching and polling a workspace |
 | `core/kind`, `registrations`, `derived` | file kinds, chunkers, derivers |
 | `core/config`, `workspace`, `outline`, `export`, `edition`, `pgstore` | as named |
@@ -38,7 +39,7 @@ The daemon never pushes: clients poll `sys.events` (and, for todos, `todos.chang
 | `tui` | the TUI/GUI host and its features |
 | `script` | the exportable Lua engine (gopher-lua); no AutoDoc imports |
 | `plugin` | the plugin protocol |
-| `internal/contractsgen` | writes AGENTS.md's verb and error tables from the contracts |
+| `internal/contractsgen` | writes AGENTS.md's verb and error tables, and autodoc.nvim's `contracts.lua`, from the contracts |
 
 ## 3. Dependency rules
 
@@ -51,7 +52,8 @@ The daemon never pushes: clients poll `sys.events` (and, for todos, `todos.chang
 - `rpc` is a host: it adapts modules to the wire. The TUI's script engine is another host of the
   same contracts.
 - A port (an interface a package needs) is declared by the package that consumes it:
-  `todo.Journal`, `todo.Filesystems`, `todo.Roots`.
+  `todo.Journal`, `todo.Filesystems`, `todo.Roots`, and rpc's `Workspace`, which
+  `internal/daemon`'s served workspaces implement (`rpc.Static` is a fixed one, for tests).
 
 ## 4. The convention
 
@@ -121,8 +123,14 @@ func (t *todos) Commands() map[string]decl.HandlerFunc { … } // its App.* comm
 
 One SQLite file (`autodoc.db`), one writer connection. Migrations are
 `sql/deployments/sqlite/0000NN_update_*.sql` with their `_revert_` pairs, listed in
-`docs/ops/schema-scripts.md`. A module's tables are declared in `core/store` today
-(`todojournal.go`); a table-registration seam is follow-up 3/7.
+`docs/ops/schema-scripts.md`. Released scripts never change: their digests are pinned in tests.
+
+A module declares its own tables through the store's seam, `store.Declare` (`core/store/declare.go`):
+at its package's init, the module names a build function for its dao schemas. Every store builds
+every declaration when it opens, for its writer and its readers, and the list is frozen then. The
+tables themselves are the migrations'. The todo journal (`core/todo/sqlitejournal`) is the first to
+declare its tables this way. That package joins core/todo and core/store, so neither imports the
+other.
 
 ## 6. Protocol and versioning
 
@@ -130,8 +138,8 @@ One SQLite file (`autodoc.db`), one writer connection. Migrations are
   the protocol it declared.
 - A verb arrives at a protocol: its contract's `Since`.
 - **Adding a verb** is its contract plus its handler. `rpc/testdata/contracts.json` (the golden
-  file; `go test ./rpc -update` rewrites it) and AGENTS.md (`go generate ./rpc`) follow, and
-  tests fail until they do.
+  file; `go test ./rpc -update` rewrites it), AGENTS.md and autodoc.nvim's
+  `lua/autodoc/contracts.lua` (`go generate ./rpc`) follow, and tests fail until they do.
 - A change that is not an addition raises `MinProtocol`, or keeps the old behaviour below it.
 
 ## 7. Concurrency

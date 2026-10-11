@@ -41,16 +41,15 @@ func schemaServer(t *testing.T, src string) (*golibrpc.Client, *memfs.FS) {
 		t.Fatal(err)
 	}
 	fsys := memfs.New()
-	ix := index.NewIndexer(index.Open(db, row.ID), fsys, index.Options{Match: md, BatchDelay: 5 * time.Millisecond,
-		Schema: func() (*schema.Schema, string) { return sch, "fp" }})
-	f := follow.New(fsys, ix, ix, follow.Options{Match: md, PollInterval: 20 * time.Millisecond})
+	ix := index.New(index.NewStore(db, row.ID), fsys, index.WithMatch(md), index.WithBatching(0, 5*time.Millisecond), index.WithSchema(func() (*schema.Schema, string) { return sch, "fp" }))
+	f := follow.New(fsys, ix, ix, follow.WithMatch(md), follow.WithPollInterval(20*time.Millisecond))
 	var cores sync.WaitGroup
 	cores.Go(func() { _ = ix.Run(ctx) })
 	cores.Go(func() { _ = f.Run(ctx) })
-	w := &Workspace{Name: "kb", Root: "/roots/kb", Index: ix, Docs: docs.New(fsys, md), Following: f.Status,
+	w := Static(WorkspaceInfo{Name: "kb", Root: "/roots/kb", Index: ix, Docs: docs.New(fsys, md), Following: f.Status,
 		FrontmatterSchema: func() (*schema.Schema, SchemaStatus) {
 			return sch, SchemaStatus{Path: ".autodoc/schema.yaml", Active: true, Fields: len(sch.Fields)}
-		}}
+		}})
 	sock := shortSocket(t) // a TempDir named after a long test passes macOS's socket-path limit
 	ln, err := net.Listen("unix", sock)
 	if err != nil {

@@ -8,9 +8,11 @@ import (
 	"testing"
 )
 
-// Data access is the store's: outside core/store no production code opens a SQL connection,
-// declares a table, runs SQL of its own, or batches without the scope's workspace stamp. Every
-// read and write elsewhere goes through a Scope's DAOs (and dao's predicates).
+// Data access is the store's: outside core/store no production code opens a SQL connection, runs
+// SQL of its own, or batches without the scope's workspace stamp. Every read and write elsewhere
+// goes through a Scope's DAOs (and dao's predicates), or a package's own tables declared through
+// the store's seam: a file that declares with store.Declare may build its tables (dao.New), and
+// nothing more.
 //
 // core/pgstore is exempt: it is a store itself — a search.Store over a destination database, the
 // one package beside core/store that owns dao declarations — and its every statement carries its
@@ -54,7 +56,11 @@ func TestNoDataAccessOutsideTheStore(t *testing.T) {
 			return err
 		}
 		checked++
+		declares := strings.Contains(string(b), "store.Declare(")
 		for _, f := range forbidden {
+			if f == "dao.New(" && declares {
+				continue // its tables, declared through the seam (declare.go)
+			}
 			if strings.Contains(string(b), f) {
 				t.Errorf("%s: %s outside core/store", path, f)
 			}

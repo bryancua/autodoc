@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/yongjohnlee80/golib/logger"
 
 	"github.com/yongjohnlee80/autodoc/core/store"
 )
@@ -50,7 +53,7 @@ func (e *env) seedModel(ws int64, fp string, n int, active, target int) {
 // to a: b's partial vectors and its row go, and a, which answered throughout, keeps every vector.
 func TestACancelledSwitchIsReclaimed(t *testing.T) {
 	a := newFake("m", "a")
-	e := newEnv(t, Options{Provider: a})
+	e := newEnv(t, options{Provider: a})
 	e.put("x.md", "zebra\n", "y.md", "hippo\n")
 	e.ready()
 	fpA := a.Model().Fingerprint()
@@ -58,7 +61,7 @@ func TestACancelledSwitchIsReclaimed(t *testing.T) {
 
 	b := newFake("m2", "b")
 	b.hold("hippo") // b's first batch waits: the switch is under way
-	e.open(Options{Provider: b})
+	e.open(options{Provider: b})
 	fpB := b.Model().Fingerprint()
 	e.eventually("b filling", func() bool { return len(b.texts()) > 0 })
 	e.seedVectors(fpB, 3) // what b had embedded so far
@@ -66,7 +69,7 @@ func TestACancelledSwitchIsReclaimed(t *testing.T) {
 		t.Fatalf("a part-filled b flipped: active %s", e.activeModel())
 	}
 
-	e.open(Options{Provider: a}) // the cancel: the provider goes back to a
+	e.open(options{Provider: a}) // the cancel: the provider goes back to a
 	b.unhold()
 	e.eventually("b reclaimed", func() bool { n, row := e.vectorsOf(fpB); return n == 0 && !row })
 	if n, row := e.vectorsOf(fpA); n != kept || !row || e.activeModel() != fpA {
@@ -78,20 +81,20 @@ func TestACancelledSwitchIsReclaimed(t *testing.T) {
 // untouched, and c is the target.
 func TestARetargetedSwitchReclaimsTheOneLeft(t *testing.T) {
 	a := newFake("m", "a")
-	e := newEnv(t, Options{Provider: a})
+	e := newEnv(t, options{Provider: a})
 	e.put("x.md", "zebra\n", "y.md", "hippo\n")
 	e.ready()
 	fpA := a.Model().Fingerprint()
 	kept, _ := e.vectorsOf(fpA)
 	b := newFake("m2", "b")
 	b.hold("hippo")
-	e.open(Options{Provider: b})
+	e.open(options{Provider: b})
 	fpB := b.Model().Fingerprint()
 	e.eventually("b filling", func() bool { return len(b.texts()) > 0 })
 	e.seedVectors(fpB, 3)
 	c := newFake("m3", "c")
 	c.hold("hippo")
-	e.open(Options{Provider: c})
+	e.open(options{Provider: c})
 	b.unhold()
 	e.eventually("b reclaimed", func() bool { n, row := e.vectorsOf(fpB); return n == 0 && !row })
 	var target string
@@ -107,7 +110,7 @@ func TestARetargetedSwitchReclaimsTheOneLeft(t *testing.T) {
 // its recorded active model and target.
 func TestASweepKeepsTheActiveAndTheTarget(t *testing.T) {
 	a := newFake("m", "a")
-	e := newEnv(t, Options{Provider: a})
+	e := newEnv(t, options{Provider: a})
 	e.put("x.md", "zebra\n")
 	e.ready()
 	fpA := a.Model().Fingerprint()
@@ -149,7 +152,7 @@ func TestAReclaimTakesBatches(t *testing.T) {
 	was := reclaimBatch
 	reclaimBatch = 2
 	t.Cleanup(func() { reclaimBatch = was })
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.seedModel(e.ws, "old|m", 5, 0, 0)
 	writes := 0
 	counting := func(ctx context.Context, fn func(context.Context, *store.Tx) error) error {
@@ -177,7 +180,7 @@ func TestAReclaimLeavesAModelSwitchedBack(t *testing.T) {
 	was := reclaimBatch
 	reclaimBatch = 2
 	t.Cleanup(func() { reclaimBatch = was })
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.seedModel(e.ws, "back|m", 5, 0, 0)
 	writes := 0
 	racing := func(ctx context.Context, fn func(context.Context, *store.Tx) error) error {
@@ -204,7 +207,7 @@ func TestASweepFinishesAReclaimCutShort(t *testing.T) {
 	was := reclaimBatch
 	reclaimBatch = 2
 	t.Cleanup(func() { reclaimBatch = was })
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.seedModel(e.ws, "cut|m", 5, 0, 0)
 	writes := 0
 	crashing := func(ctx context.Context, fn func(context.Context, *store.Tx) error) error {
@@ -233,7 +236,7 @@ func TestASweepFinishesAReclaimCutShort(t *testing.T) {
 // snapshot is its own, and the reclaim comes after the publish.
 func TestAReadOpenAcrossTheFlipKeepsTheOldVectors(t *testing.T) {
 	a := newFake("m", "a")
-	e := newEnv(t, Options{Provider: a})
+	e := newEnv(t, options{Provider: a})
 	e.put("x.md", "zebra\n", "y.md", "hippo\n")
 	e.ready()
 	fpA := a.Model().Fingerprint()
@@ -248,7 +251,7 @@ func TestAReadOpenAcrossTheFlipKeepsTheOldVectors(t *testing.T) {
 		t.Fatalf("the read before the flip: %d, %v", before, err)
 	}
 	b := newFake("m2", "b")
-	e.open(Options{Provider: b})
+	e.open(options{Provider: b})
 	e.eventually("the flip, then the reclaim of a", func() bool { n, row := e.vectorsOf(fpA); return n == 0 && !row })
 	var still int
 	if err := scanOne(ctx, tx, &still, "SELECT COUNT(*) FROM embedding WHERE model_fp = ?", fpA); err != nil || still != before {
@@ -260,7 +263,7 @@ func TestAReadOpenAcrossTheFlipKeepsTheOldVectors(t *testing.T) {
 // and deletes nothing; an inactive model is reclaimed at once.
 func TestPurgeSaysWhatToDoInstead(t *testing.T) {
 	a := newFake("m", "a")
-	e := newEnv(t, Options{Provider: a})
+	e := newEnv(t, options{Provider: a})
 	e.put("x.md", "zebra\n")
 	e.ready()
 	fpA := a.Model().Fingerprint()
@@ -275,7 +278,7 @@ func TestPurgeSaysWhatToDoInstead(t *testing.T) {
 	// a switch to b under way: b is the target, and purging it is the cancel's to do
 	b := newFake("m2", "b")
 	b.hold("zebra")
-	e.open(Options{Provider: b})
+	e.open(options{Provider: b})
 	fpB := b.Model().Fingerprint()
 	e.eventually("b filling", func() bool { return len(b.texts()) > 0 })
 	err = e.ix.PurgeModel(context.Background(), fpB)
@@ -297,7 +300,7 @@ func TestPurgeSaysWhatToDoInstead(t *testing.T) {
 // target is as it was.
 func TestAFailedTargetWriteChangesNothing(t *testing.T) {
 	a := newFake("m", "a")
-	e := newEnv(t, Options{Provider: a})
+	e := newEnv(t, options{Provider: a})
 	e.put("x.md", "zebra\n")
 	e.ready()
 	fpA := a.Model().Fingerprint()
@@ -314,7 +317,7 @@ func TestAFailedTargetWriteChangesNothing(t *testing.T) {
 			t.Fatal(err)
 		}
 		// an indexer asked to fill another model, never run: its setupModels alone, nothing racing it
-		x := NewIndexer(e.store, e.fault, Options{Provider: newFake("m2", "b"), Match: testMatch})
+		x := newIndexer(e.store, e.fault, options{Provider: newFake("m2", "b"), Match: testMatch})
 		if err := x.setupModels(context.Background()); err == nil {
 			t.Errorf("setupModels under %q: no error", trigger)
 		}
@@ -325,4 +328,65 @@ func TestAFailedTargetWriteChangesNothing(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+}
+
+// TestAReclaimFailsAsItsStatements: a model already reclaimed is no error; each read and write of
+// a reclaim and a sweep (the model's row, its vectors) fails as an error and leaves the model as
+// it was; a sweep asked before the indexer is ready, its request gone, returns that; and a reclaim
+// queued while the queue is full is deferred to the next start's sweep, in the log.
+func TestAReclaimFailsAsItsStatements(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, options{})
+	if r, err := ReclaimStore(ctx, e.db, e.ws, "never|x"); err != nil || r.Vectors != 0 || r.Gone {
+		t.Errorf("a model never there: %+v, %v; want nothing reclaimed", r, err)
+	}
+	e.seedModel(e.ws, "old|x", 3, 0, 0)
+	for _, table := range []string{"model", "embedding"} {
+		undo := e.renamed(table)
+		if _, err := ReclaimStore(ctx, e.db, e.ws, "old|x"); err == nil {
+			t.Errorf("the %s table unreadable: the reclaim succeeded", table)
+		}
+		if _, err := SweepStore(ctx, e.db, e.ws); err == nil {
+			t.Errorf("the %s table unreadable: the sweep succeeded", table)
+		}
+		undo()
+	}
+	// the instrument: unrefused, the same reclaim takes the model whole
+	if r, err := ReclaimStore(ctx, e.db, e.ws, "old|x"); err != nil || r.Vectors != 3 || !r.Gone {
+		t.Fatalf("the reclaim after: %+v, %v; want 3 vectors and the row gone", r, err)
+	}
+
+	gone, cancel := context.WithCancel(ctx)
+	cancel()
+	log := &lockedLog{}
+	x := newIndexer(e.store, e.fsys, options{Logger: logger.New(logger.WithWriter(log))}) // never run: never ready
+	if _, err := x.Sweep(gone); err == nil {
+		t.Error("a sweep of an indexer never ready, its request gone, returned no error")
+	}
+	x.reclaimLater("") // nothing to reclaim
+	for len(x.reclaims) < cap(x.reclaims) {
+		x.reclaims <- "queued|x"
+	}
+	x.reclaimLater("late|x")
+	if s := log.String(); !strings.Contains(s, "model.reclaim.deferred") || !strings.Contains(s, "late|x") || strings.Count(s, "model.reclaim.deferred") != 1 {
+		t.Errorf("the deferred reclaim is not in the log once:\n%s", s)
+	}
+}
+
+// lockedLog is a log the indexer's goroutines may write while a test reads it.
+type lockedLog struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *lockedLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
 }
