@@ -1,0 +1,142 @@
+package index
+
+import (
+	"context"
+	"time"
+
+	"github.com/yongjohnlee80/golib/search/chunk"
+	"github.com/yongjohnlee80/golib/vfs"
+
+	"github.com/yongjohnlee80/autodoc/core/schema"
+	"github.com/yongjohnlee80/autodoc/core/store"
+)
+
+// THE WRITER PORT — where the indexer's documents are kept: the rows a search reads. The port is
+// document persistence only: the queue, the change log, readiness and publication stay the local
+// store's. A document is named by its path, which every implementation keys on; no store's own id
+// crosses the port. The store's own implementation is a batch bound to the indexer's commit
+// transaction; a destination's (core/pgstore/pgwriter) is a transaction of its own. Ordering the
+// two is the destination's wiring, not this port's.
+
+// Doc is one document as the indexer hands it on: what it read and cut of a file, whatever keeps
+// it. It carries every field the indexer makes; an implementation that defers one declares so
+// (core/index/writertest), and a workspace needing that field may not be served by it.
+type Doc struct {
+	Path        string
+	Version     vfs.Version   // the file's version it was read at, kept verbatim
+	Indexer     string        // the identity it was cut under, kept verbatim (ParseIdentity)
+	Meta        chunk.Meta    // its title, tags, aliases, frontmatter (and its error) and abstract
+	Chunks      []DocChunk    // in order
+	Links       []DocLink     // its links and relations, in order
+	Frontmatter schema.Result // its facets and diagnostics under the workspace's schema
+	ADR         string        // the decision-record number a document of type adr carries; "" for none
+}
+
+// Writer is where documents are kept.
+type Writer interface {
+	Begin(ctx context.Context) (Batch, error)
+}
+
+// Batch is one commit's documents, kept together: all of them, or none.
+type Batch interface {
+	Put(ctx context.Context, d Doc) error          // replaces what is kept at d.Path
+	Delete(ctx context.Context, path string) error // a path not kept is no error
+	Commit() error
+	Rollback() error
+}
+
+// doc is what p hands on.
+func (p *prepared) doc() Doc {
+	return Doc{Path: p.path, Version: p.version, Indexer: p.indexer, Meta: p.meta, Chunks: p.chunks,
+		Links: p.links, Frontmatter: p.frontmatter, ADR: p.adr}
+}
+
+// storeWriter is the store's own Writer inside one write transaction: its batches are that
+// transaction's, so the documents commit with the jobs, the change log and readiness, or not at all.
+type storeWriter struct {
+	s   *Store
+	tx  *store.Tx
+	now time.Time
+}
+
+func (w storeWriter) Begin(context.Context) (Batch, error) { return w.batch(), nil }
+
+func (w storeWriter) batch() *storeBatch { return &storeBatch{w: w} }
+
+// storeBatch is a batch in the store's write transaction. Commit and Rollback belong to that
+// transaction's owner (the indexer's commit): here they do nothing, so a batch never commits half a
+// transaction. changed are the documents written, by the store's ids, for the publication that
+// follows the commit; they never leave the package.
+type storeBatch struct {
+	w       storeWriter
+	changed []int64
+}
+
+func (b *storeBatch) Put(_ context.Context, d Doc) error {
+	id, err := b.w.s.upsertDoc(b.w.tx, d, b.w.now)
+	if err == nil {
+		b.changed = append(b.changed, id)
+	}
+	return err
+}
+
+func (b *storeBatch) Delete(_ context.Context, path string) error {
+	id, err := b.w.s.deleteDoc(b.w.tx, path, b.w.now)
+	if err == nil {
+		b.changed = append(b.changed, id)
+	}
+	return err
+}
+
+func (*storeBatch) Commit() error   { return nil }
+func (*storeBatch) Rollback() error { return nil }
+
+var _ Writer = storeWriter{}
+
+// Writer is the store's own Writer outside the indexer: a batch keeps its documents and writes
+// them all in one write transaction at Commit, so they are kept together or not at all. A Put or
+// Delete that fails is said at Commit.
+func (s *Store) Writer() Writer { return bufferedWriter{s: s} }
+
+type bufferedWriter struct{ s *Store }
+
+func (w bufferedWriter) Begin(context.Context) (Batch, error) { return &bufferedBatch{s: w.s}, nil }
+
+// bufferedBatch keeps its operations until Commit.
+type bufferedBatch struct {
+	s   *Store
+	ops []func(context.Context, *storeBatch) error
+	ctx context.Context
+}
+
+func (b *bufferedBatch) Put(ctx context.Context, d Doc) error {
+	b.ctx = ctx
+	b.ops = append(b.ops, func(ctx context.Context, sb *storeBatch) error { return sb.Put(ctx, d) })
+	return nil
+}
+
+func (b *bufferedBatch) Delete(ctx context.Context, path string) error {
+	b.ctx = ctx
+	b.ops = append(b.ops, func(ctx context.Context, sb *storeBatch) error { return sb.Delete(ctx, path) })
+	return nil
+}
+
+func (b *bufferedBatch) Commit() error {
+	ctx := b.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ops := b.ops
+	b.ops = nil
+	return b.s.db.Write(ctx, func(tx *store.Tx) error {
+		sb := storeWriter{s: b.s, tx: tx, now: b.s.db.Clock().Now()}.batch()
+		for _, op := range ops {
+			if err := op(ctx, sb); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (b *bufferedBatch) Rollback() error { b.ops = nil; return nil }

@@ -85,7 +85,7 @@ func TestExtractLinks(t *testing.T) {
 	doc := markdown.Parse([]byte(src), markdown.GFM(), markdown.Obsidian())
 	var got []string
 	for _, l := range extractLinks(doc, "dir/n.md", nil) {
-		got = append(got, fmt.Sprintf("%s %s #%s %s", l.kind, l.name, l.anchor, l.raw))
+		got = append(got, fmt.Sprintf("%s %s #%s %s", l.Kind, l.Name, l.Anchor, l.Raw))
 	}
 	eq(t, "links", got, []string{
 		"wikilink plan # [[Plan]]",
@@ -107,7 +107,7 @@ func TestExtractLinks(t *testing.T) {
 		func(p string) bool {
 			return p == "doc.pdf" || strings.HasSuffix(p, ".sh") || strings.HasPrefix(p, "assets/") && strings.HasSuffix(p, ".pdf")
 		}) {
-		pdf = append(pdf, l.name)
+		pdf = append(pdf, l.Name)
 	}
 	eq(t, "indexed attachment types", pdf, []string{"doc.pdf", "notes/run.sh", "/assets/d.pdf", "assets/e.pdf"})
 }

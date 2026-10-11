@@ -19,7 +19,7 @@ func (x *Indexer) ResolveLink(ctx context.Context, from, raw string) (path, reas
 	}
 	l := links[0]
 	err = x.store.read(ctx, func(tx *store.Tx) error {
-		dst, why, err := x.store.resolve(tx, l.kind, l.name)
+		dst, why, err := x.store.resolve(tx, l.Kind, l.Name)
 		if err != nil || dst == 0 {
 			reason = why
 			return err
