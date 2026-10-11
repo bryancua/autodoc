@@ -632,6 +632,46 @@ func dsnOf(t *testing.T, base dao.DataConn, name string) string {
 	return u.String()
 }
 
+// repeatableByDefault is conn's database on a connection of its own whose transactions are
+// REPEATABLE READ unless they say otherwise.
+func repeatableByDefault(t *testing.T, conn dao.DataConn) dao.DataConn {
+	t.Helper()
+	u, err := url.Parse(dsnOf(t, conn, scalar(t, conn, "SELECT current_database()")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := u.Query()
+	q.Set("default_transaction_isolation", "repeatable read")
+	u.RawQuery = q.Encode()
+	rr, err := postgres.Open(context.Background(), u.String())
+	if err != nil {
+		t.Fatalf("connect with default_transaction_isolation: %v", err)
+	}
+	t.Cleanup(func() { closeConn(rr) })
+	if got := scalar(t, rr, "SHOW transaction_isolation"); got != "repeatable read" {
+		t.Fatalf("the connection's default isolation is %q; want repeatable read", got)
+	}
+	return rr
+}
+
+// scalar is the one text value q answers on conn.
+func scalar(t *testing.T, conn dao.DataConn, q string) string {
+	t.Helper()
+	rows, err := conn.QueryContext(context.Background(), q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var v string
+	if !rows.Next() {
+		t.Fatalf("%s: no row", q)
+	}
+	if err := rows.Scan(&v); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
 func randHex(t *testing.T) string {
 	t.Helper()
 	b := make([]byte, 6)
@@ -771,10 +811,11 @@ func TestMarkReadyRefusesAStaleVerdict(t *testing.T) {
 }
 
 // Cell — a Batch is kept whole or not at all, and a Put that loses its compare-and-set to another
-// writer inside a batch writes again over the newer row; one that loses every time fails the batch.
+// writer inside a batch fails the batch with ErrWriteRace, leaving the other writer's document.
+// The database's sessions default to REPEATABLE READ: a batch is READ COMMITTED all the same.
 func TestABatchIsOneTransaction(t *testing.T) {
 	ctx := context.Background()
-	conn := scratch(t)
+	conn := repeatableByDefault(t, scratch(t))
 	s, err := New(conn, "tenant")
 	if err != nil {
 		t.Fatal(err)
@@ -822,43 +863,17 @@ func TestABatchIsOneTransaction(t *testing.T) {
 		t.Fatalf("b.md after the commit: %q %v", v, ok)
 	}
 
-	// another writer lands once between the batch's read and its write: the batch writes again
-	// the other writer's own Put runs the hook too: inside it, the hook does nothing
-	raced, inside := 0, false
+	// another writer lands between the batch's read and its write: the batch fails, keeps
+	// nothing, and the other writer's document stands (it is not written over). The other writer's
+	// own Put runs the hook too: inside it, the hook does nothing.
+	reads, inside := 0, false
 	putHook = func() {
 		if inside {
 			return
 		}
-		if raced++; raced == 1 {
-			inside = true
-			if _, err := s.Put(ctx, doc("a.md", "theirs")); err != nil {
-				t.Error(err)
-			}
-			inside = false
-		}
-	}
-	b = s.Begin(ctx)
-	if _, err := b.Put(ctx, doc("a.md", "ours")); err != nil {
-		putHook = nil
-		t.Fatalf("a Put that lost one race: %v", err)
-	}
-	putHook = nil
-	if err := b.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if v, _ := version("a.md"); v != "ours" || raced < 2 {
-		t.Errorf("after one lost race: %q, %d reads; want ours, written again", v, raced)
-	}
-
-	// another writer lands every time: the batch fails, and keeps nothing
-	n := 0
-	putHook = func() {
-		if inside {
-			return
-		}
-		n++
+		reads++
 		inside = true
-		if _, err := s.Put(ctx, doc("a.md", fmt.Sprintf("theirs %d", n))); err != nil {
+		if _, err := s.Put(ctx, doc("a.md", "theirs")); err != nil {
 			t.Error(err)
 		}
 		inside = false
@@ -866,11 +881,11 @@ func TestABatchIsOneTransaction(t *testing.T) {
 	b = s.Begin(ctx)
 	_, err = b.Put(ctx, doc("a.md", "never"))
 	putHook = nil
-	if !errors.Is(err, ErrWriteRace) {
-		t.Fatalf("a Put that loses every race: %v; want ErrWriteRace", err)
+	if !errors.Is(err, ErrWriteRace) || reads != 1 {
+		t.Fatalf("a Put that lost the race: %v after %d reads; want ErrWriteRace after one", err, reads)
 	}
 	_ = b.Rollback()
-	if v, _ := version("a.md"); v == "never" {
-		t.Error("a failed batch kept its document")
+	if v, _ := version("a.md"); v != "theirs" {
+		t.Errorf("after a lost race: %q; want the other writer's", v)
 	}
 }

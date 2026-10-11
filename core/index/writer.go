@@ -32,7 +32,8 @@ type Doc struct {
 	ADR         string        // the decision-record number a document of type adr carries; "" for none
 }
 
-// Writer is where documents are kept.
+// Writer is where documents are kept. A batch lives under Begin's ctx: once that is done, the
+// batch keeps nothing (a Put, a Delete or the Commit says why).
 type Writer interface {
 	Begin(ctx context.Context) (Batch, error)
 }
@@ -92,51 +93,3 @@ func (*storeBatch) Commit() error   { return nil }
 func (*storeBatch) Rollback() error { return nil }
 
 var _ Writer = storeWriter{}
-
-// Writer is the store's own Writer outside the indexer: a batch keeps its documents and writes
-// them all in one write transaction at Commit, so they are kept together or not at all. A Put or
-// Delete that fails is said at Commit.
-func (s *Store) Writer() Writer { return bufferedWriter{s: s} }
-
-type bufferedWriter struct{ s *Store }
-
-func (w bufferedWriter) Begin(context.Context) (Batch, error) { return &bufferedBatch{s: w.s}, nil }
-
-// bufferedBatch keeps its operations until Commit.
-type bufferedBatch struct {
-	s   *Store
-	ops []func(context.Context, *storeBatch) error
-	ctx context.Context
-}
-
-func (b *bufferedBatch) Put(ctx context.Context, d Doc) error {
-	b.ctx = ctx
-	b.ops = append(b.ops, func(ctx context.Context, sb *storeBatch) error { return sb.Put(ctx, d) })
-	return nil
-}
-
-func (b *bufferedBatch) Delete(ctx context.Context, path string) error {
-	b.ctx = ctx
-	b.ops = append(b.ops, func(ctx context.Context, sb *storeBatch) error { return sb.Delete(ctx, path) })
-	return nil
-}
-
-func (b *bufferedBatch) Commit() error {
-	ctx := b.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	ops := b.ops
-	b.ops = nil
-	return b.s.db.Write(ctx, func(tx *store.Tx) error {
-		sb := storeWriter{s: b.s, tx: tx, now: b.s.db.Clock().Now()}.batch()
-		for _, op := range ops {
-			if err := op(ctx, sb); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-}
-
-func (b *bufferedBatch) Rollback() error { b.ops = nil; return nil }
