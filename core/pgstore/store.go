@@ -29,7 +29,7 @@ func Migrate(ctx context.Context, conn dao.DataConn) error {
 	return nil
 }
 
-// ErrNoTenant is Open with an empty tenant.
+// ErrNoTenant is New with an empty tenant.
 var ErrNoTenant = errs.Sentinel(errs.ErrInvalidArgument, "pgstore: no tenant")
 
 // Store is one tenant's index in PostgreSQL with pgvector, as golib's search port reads it: a
@@ -43,8 +43,8 @@ type Store struct {
 	ro     schemas // views: every transaction REPEATABLE READ, READ ONLY
 }
 
-// Open returns tenant's store on conn.
-func Open(conn dao.DataConn, tenant string) (*Store, error) {
+// New is tenant's store on conn. It does no I/O: Migrate prepares the database.
+func New(conn dao.DataConn, tenant string) (*Store, error) {
 	if tenant == "" {
 		return nil, ErrNoTenant
 	}
@@ -251,6 +251,29 @@ func (s *Store) Put(ctx context.Context, d Document) (int64, error) {
 func (s *Store) putOnce(ctx context.Context, d Document, tags, facets []string, tagText string) (int64, bool, error) {
 	var id int64
 	err := dao.RunTx(ctx, func(tx *dao.Transaction) error {
+		var err error
+		id, err = s.putIn(ctx, tx, d, tags, facets, tagText)
+		return err
+	})
+	if errors.Is(err, ErrWriteRace) {
+		return 0, true, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return id, false, nil
+}
+
+// putHook runs between putIn's read of the generation and its conditioned write. It is nil in
+// production; a cell sets it to land another writer's Put inside that window.
+var putHook func()
+
+// putIn is one compare-and-set write of d inside tx: ErrWriteRace when another writer bumped the
+// generation between its read and its write. The update's condition failing leaves tx usable; a
+// first insert two writers both made is a duplicate, and an error ends a PostgreSQL transaction.
+func (s *Store) putIn(ctx context.Context, tx *dao.Transaction, d Document, tags, facets []string, tagText string) (int64, error) {
+	var id int64
+	err := func() error {
 		cur, err := s.rw.doc.On(tx, dao.WithQueryContext(ctx)).With(dTenant, s.tenant).With(dPath, d.Path).Get(dID, dGen)
 		switch {
 		case errors.Is(err, dao.ErrNoRows):
@@ -269,6 +292,9 @@ func (s *Store) putOnce(ctx context.Context, d Document, tags, facets []string, 
 			return err
 		default:
 			id = cur.ID
+			if putHook != nil {
+				putHook()
+			}
 			// the compare-and-set: the update holds only while the generation is still the one
 			// this read; a concurrent writer that bumped it makes the count 0
 			n, err := dao.UpdateAffected(s.rw.doc.On(tx, dao.WithQueryContext(ctx)).With(dTenant, s.tenant).With(dID, id).
@@ -310,14 +336,8 @@ func (s *Store) putOnce(ctx context.Context, d Document, tags, facets []string, 
 			}
 		}
 		return nil
-	})
-	if errors.Is(err, ErrWriteRace) {
-		return 0, true, nil
-	}
-	if err != nil {
-		return 0, false, err
-	}
-	return id, false, nil
+	}()
+	return id, err
 }
 
 func nonNil(s []string) []string {
