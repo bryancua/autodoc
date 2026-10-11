@@ -86,7 +86,7 @@ func (m *Workspaces) Configure(ctx context.Context, name string, c store.Changes
 	var candidate config.Workspace
 	if c.Include != nil {
 		candidate = config.Workspace{Name: name, Root: s.root, Include: *c.Include, Exclude: *c.Exclude}
-		if err := checkRoot(candidate); err != nil {
+		if err := checkRoot(ctx, candidate); err != nil {
 			return err
 		}
 	}

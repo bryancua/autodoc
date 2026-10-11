@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/yongjohnlee80/autodoc/core/export"
+	"github.com/yongjohnlee80/autodoc/internal/localfs"
 )
 
 // exportMain writes sourcePath exported to destination; its relative links are read from base, or
@@ -43,5 +45,5 @@ func exportMain(sourcePath, format, destination, theme, base string) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", sourcePath, err)
 	}
-	return export.WriteFile(destination, content)
+	return localfs.WriteFile(context.Background(), destination, content)
 }

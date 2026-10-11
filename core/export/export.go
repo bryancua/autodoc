@@ -3,11 +3,9 @@ package export
 import (
 	"bytes"
 	"crypto/sha256"
-	"errors"
 	"fmt"
 	stdhtml "html"
 	"net/url"
-	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -314,27 +312,4 @@ func writeText(output *bytes.Buffer, node *markdown.Node, source []byte) {
 	case markdown.KindList, markdown.KindBlockQuote, markdown.KindTable:
 		output.WriteByte('\n')
 	}
-}
-
-func WriteFile(destination string, content []byte) error {
-	if destination == "" {
-		return errors.New("export: choose a destination")
-	}
-	directory := filepath.Dir(destination)
-	temporary, err := os.CreateTemp(directory, ".autodoc-export-*")
-	if err != nil {
-		return err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if _, err = temporary.Write(content); err == nil {
-		err = temporary.Sync()
-	}
-	if closeErr := temporary.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		return err
-	}
-	return os.Rename(temporaryPath, destination)
 }

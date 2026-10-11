@@ -1,6 +1,7 @@
 package workspace_test
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -31,11 +32,11 @@ func TestMatcher(t *testing.T) {
 
 func TestOpenReportsAMissingRoot(t *testing.T) {
 	c := config.Workspace{Name: "kb", Root: filepath.Join(t.TempDir(), "missing"), Include: config.DefaultInclude, Exclude: config.DefaultExclude}
-	if _, err := workspace.Open(c); err == nil {
+	if _, err := workspace.Open(context.Background(), c); err == nil {
 		t.Fatal("opened a missing root")
 	}
 	c.Root = filepath.Dir(c.Root)
-	w, err := workspace.Open(c)
+	w, err := workspace.Open(context.Background(), c)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +57,7 @@ func TestOpenReportsARootItCannotRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
-	_, err := workspace.Open(config.Workspace{Name: "kb", Root: dir})
+	_, err := workspace.Open(context.Background(), config.Workspace{Name: "kb", Root: dir})
 	if err == nil || errors.Is(err, workspace.ErrNotADirectory) || !errors.Is(err, os.ErrPermission) {
 		t.Fatalf("Open of an unreadable root = %v; want the permission error, not ErrNotADirectory", err)
 	}
