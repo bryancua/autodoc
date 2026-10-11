@@ -7,13 +7,14 @@ import (
 	"sort"
 
 	"github.com/yongjohnlee80/golib/dao"
+	"github.com/yongjohnlee80/golib/errs"
 	"github.com/yongjohnlee80/golib/graph"
 
 	"github.com/yongjohnlee80/autodoc/core/store"
 )
 
 // ErrNoDocument is a path the index does not hold.
-var ErrNoDocument = errors.New("index: no such document")
+var ErrNoDocument = errs.Sentinel(errs.ErrInvalidArgument, "index: no such document")
 
 // Link is one link of graph.links or graph.backlinks (ADR 0204 §4.6). Path is the other end: the
 // target of a link, the source of a backlink; "" for an unresolved link.

@@ -4,10 +4,10 @@
 package workspace
 
 import (
-	"errors"
 	"fmt"
 	"os"
 
+	"github.com/yongjohnlee80/golib/errs"
 	"github.com/yongjohnlee80/golib/vfs"
 	"github.com/yongjohnlee80/golib/vfs/local"
 
@@ -15,7 +15,7 @@ import (
 )
 
 // ErrNotADirectory is a workspace root that is not a directory.
-var ErrNotADirectory = errors.New("workspace: the root is not a directory")
+var ErrNotADirectory = errs.Sentinel(errs.ErrInvalidArgument, "workspace: the root is not a directory")
 
 // Workspace is one open root.
 type Workspace struct {

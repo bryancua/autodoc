@@ -2,12 +2,12 @@ package index
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
 
 	"github.com/yongjohnlee80/golib/dao"
+	"github.com/yongjohnlee80/golib/errs"
 
 	"github.com/yongjohnlee80/autodoc/core/kind"
 	"github.com/yongjohnlee80/autodoc/core/registrations"
@@ -50,7 +50,7 @@ const (
 )
 
 // ErrIdentity is a document.indexer string outside the grammar.
-var ErrIdentity = errors.New("index: not a document.indexer identity")
+var ErrIdentity = errs.Sentinel(errs.ErrInvalidArgument, "index: not a document.indexer identity")
 
 // ParseIdentity reads a document.indexer string.
 func ParseIdentity(s string) (Identity, error) {

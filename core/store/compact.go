@@ -2,11 +2,12 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"syscall"
+
+	"github.com/yongjohnlee80/golib/errs"
 )
 
 // COMPACTING (ADR 1791284787 §2.5) — SQLite puts the pages a delete frees on its freelist: the file
@@ -27,7 +28,7 @@ const (
 
 // ErrNoRoom is a compaction refused before it starts: the store's file system has less free space
 // than VACUUM may need.
-var ErrNoRoom = errors.New("store: not enough free space to compact the store")
+var ErrNoRoom = errs.Sentinel(errs.ErrPrecondition, "store: not enough free space to compact the store")
 
 // AutoVacuum is the store's auto_vacuum mode.
 func (s *Store) AutoVacuum(ctx context.Context) (int, error) {

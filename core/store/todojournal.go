@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/yongjohnlee80/golib/dao"
+	"github.com/yongjohnlee80/golib/errs"
 
 	"github.com/yongjohnlee80/autodoc/core/todo"
 )
@@ -29,7 +30,7 @@ import (
 
 // errTodoSettled is a Stage, Commit or Drop of a row that is not pending (Stage: not exactly
 // pending), or not there.
-var errTodoSettled = errors.New("store: the todo change is not pending")
+var errTodoSettled = errs.Sentinel(errs.ErrPrecondition, "store: the todo change is not pending")
 
 // TodoJournal is the todo system's journal on this store.
 func (s *Store) TodoJournal() todo.Journal {

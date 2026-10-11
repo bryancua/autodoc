@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/yongjohnlee80/golib/dao"
+	"github.com/yongjohnlee80/golib/errs"
 )
 
 // DATABASES — a workspace's source, the database its .view files run on, and its destination,
@@ -35,7 +36,7 @@ const (
 )
 
 // ErrSetting is a workspace setting the store refuses; a SettingError says which and why.
-var ErrSetting = errors.New("store: invalid workspace setting")
+var ErrSetting = errs.Sentinel(errs.ErrInvalidArgument, "store: invalid workspace setting")
 
 // SettingError is ErrSetting with its reason, a constant of this package's own: a client may be
 // shown it.

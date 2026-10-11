@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/yongjohnlee80/golib/dao"
+	"github.com/yongjohnlee80/golib/errs"
 )
 
 // EMBEDDING PROVIDERS — the providers semantic search can use, one of them in use (the preference
@@ -35,10 +36,10 @@ const logKept = 200
 
 // The refusals of the provider table.
 var (
-	ErrNoProvider       = errors.New("store: no such embedding provider")
-	ErrProviderTaken    = errors.New("store: another embedding provider has this name")
-	ErrProviderInvalid  = errors.New("store: an embedding provider needs a name, a kind (ollama, ollama-cloud or openai), a base URL and a model")
-	ErrProviderNeedsKey = errors.New("store: an ollama-cloud provider needs its API key")
+	ErrNoProvider       = errs.Sentinel(errs.ErrInvalidArgument, "store: no such embedding provider")
+	ErrProviderTaken    = errs.Sentinel(errs.ErrPrecondition, "store: another embedding provider has this name")
+	ErrProviderInvalid  = errs.Sentinel(errs.ErrInvalidArgument, "store: an embedding provider needs a name, a kind (ollama, ollama-cloud or openai), a base URL and a model")
+	ErrProviderNeedsKey = errs.Sentinel(errs.ErrInvalidArgument, "store: an ollama-cloud provider needs its API key")
 )
 
 // A provider's context window, in tokens: what one text sent to it may hold. An Ollama server
@@ -50,7 +51,7 @@ const (
 )
 
 // ErrContextRange is a context window outside MinContext and MaxContext.
-var ErrContextRange = fmt.Errorf("store: a provider's context window is %d to %d tokens", MinContext, MaxContext)
+var ErrContextRange = errs.Sentinel(errs.ErrInvalidArgument, fmt.Sprintf("store: a provider's context window is %d to %d tokens", MinContext, MaxContext))
 
 // ContextMaximumError is a window above the chosen Ollama model's advertised maximum.
 type ContextMaximumError struct{ Maximum int }
@@ -452,7 +453,7 @@ func (s *Store) providerID(tx *Tx, name string) (int64, error) {
 
 func providerTaken(err error) error {
 	if errors.Is(err, dao.ErrDuplicate) {
-		return fmt.Errorf("%w: %v", ErrProviderTaken, err)
+		return fmt.Errorf("%w: %w", ErrProviderTaken, err)
 	}
 	return err
 }

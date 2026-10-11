@@ -8,14 +8,15 @@ import (
 	"time"
 
 	"github.com/yongjohnlee80/golib/dao"
+	"github.com/yongjohnlee80/golib/errs"
 )
 
 // The refusals of the workspace table.
 var (
 	// ErrTaken is a workspace name or root another workspace already has.
-	ErrTaken = errors.New("store: another workspace has this name or root")
+	ErrTaken = errs.Sentinel(errs.ErrPrecondition, "store: another workspace has this name or root")
 	// ErrNoWorkspace is a workspace the store does not have.
-	ErrNoWorkspace = errors.New("store: no such workspace")
+	ErrNoWorkspace = errs.Sentinel(errs.ErrInvalidArgument, "store: no such workspace")
 )
 
 // SectionTokensDefault is the default section limit for existing workspaces.
@@ -28,7 +29,7 @@ const (
 )
 
 // ErrEmbeddingPolicy is a workspace's unrecognized embedding scheduling policy.
-var ErrEmbeddingPolicy = errors.New("store: embedding policy must be always, when opened, or never")
+var ErrEmbeddingPolicy = errs.Sentinel(errs.ErrInvalidArgument, "store: embedding policy must be always, when opened, or never")
 
 // EmbeddingPolicy returns the workspace's scheduling preference.
 func (s *Store) EmbeddingPolicy(ctx context.Context, id int64) (string, error) {
@@ -386,7 +387,7 @@ func (s *Store) RemoveWorkspace(ctx context.Context, id int64) error {
 
 func taken(err error) error {
 	if errors.Is(err, dao.ErrDuplicate) {
-		return fmt.Errorf("%w: %v", ErrTaken, err)
+		return fmt.Errorf("%w: %w", ErrTaken, err)
 	}
 	return err
 }
