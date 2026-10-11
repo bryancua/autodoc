@@ -194,6 +194,8 @@ func (k keyset) check(taken map[string]bool) error {
 			errs = append(errs, fmt.Errorf("tui: the card %q (view %q) needs a lower-camel ID and an upper-camel View", c.ID, c.View))
 		case taken[c.ID]:
 			errs = append(errs, fmt.Errorf("tui: the card %s takes an id main.qml already has", c.ID))
+		case c.Back != "" && !slices.ContainsFunc(k.cards, func(d Card) bool { return d.ID == c.Back }):
+			errs = append(errs, fmt.Errorf("tui: the card %s goes back to the card %s, which is not declared", c.ID, c.Back))
 		}
 	}
 	for _, key := range k.keys {
