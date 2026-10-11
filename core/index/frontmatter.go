@@ -19,19 +19,9 @@ func (x *Indexer) schema() (*schema.Schema, string) {
 	return x.opts.Schema()
 }
 
-// kindOf is how the indexer reads path, with the build's registrations and the workspace's own
-// text extensions.
-func (x *Indexer) kindOf(p string) kind.Kind {
-	var text []string
-	if x.opts.TextExtensions != nil {
-		text = x.opts.TextExtensions()
-	}
-	return x.kinds.Of(p, text)
-}
-
 // Kind is how the indexer reads path: by extension, with the build's registrations and the
 // workspace's own text extensions.
-func (x *Indexer) Kind(p string) kind.Kind { return x.kindOf(p) }
+func (x *Indexer) Kind(p string) kind.Kind { return x.kinds.Of(p) }
 
 // versionOf is what document.indexer records for path, of kind k, indexed now (ADR 0216 §1.6): a
 // registered chunker's extension and version; a derived format's frozen identity, then the
@@ -39,18 +29,34 @@ func (x *Indexer) Kind(p string) kind.Kind { return x.kindOf(p) }
 // schema's fingerprint for Markdown. A derived document has no frontmatter to check, so a schema
 // change never derives it again.
 func (x *Indexer) versionOf(p string, k kind.Kind, tokens int, schemaFP string, abstract bool) string {
-	switch k {
-	case kind.Registered:
+	builtIn := docVersion(indexerVersion(tokens), k.Traits().Frontmatter, schemaFP, abstract)
+	return identities.Of(k)(x, p, tokens, builtIn)
+}
+
+// identity is a kind's document.indexer for path: its own, or the built-in chunkers' when the build
+// has nothing of its own for it.
+type identity func(x *Indexer, p string, tokens int, builtIn string) string
+
+// identities are each kind's (kind.Table: a kind added is a kind given its identity).
+var identities = kind.NewTable(map[kind.Kind]identity{
+	kind.Markdown: builtInIdentity,
+	kind.Text:     builtInIdentity,
+	kind.YAML:     builtInIdentity,
+	kind.Registered: func(x *Indexer, p string, tokens int, builtIn string) string {
 		if _, v, ok := x.opts.Registrations.Chunker(p); ok {
 			return registeredVersion(kind.Ext(p), v, tokens)
 		}
-	case kind.Derived:
+		return builtIn
+	},
+	kind.Derived: func(x *Indexer, p string, tokens int, builtIn string) string {
 		if f, ok := x.opts.Registrations.Format(kind.Ext(p)); ok {
 			return derivedVersion(kind.Ext(p), f.ID, f.Version, indexerVersion(tokens))
 		}
-	}
-	return docVersion(indexerVersion(tokens), k == kind.Markdown, schemaFP, abstract)
-}
+		return builtIn
+	},
+})
+
+func builtInIdentity(_ *Indexer, _ string, _ int, builtIn string) string { return builtIn }
 
 // Revalidate queues every document indexed under another version than it would get now: after a
 // chunker or section-size change all of them, after a schema change the Markdown files. Each is
@@ -67,7 +73,7 @@ func (x *Indexer) Revalidate(ctx context.Context) error {
 		return fmt.Errorf("index: listing outdated documents: reading the retrieval settings: %w", err)
 	}
 	outdated, err := x.store.outdated(ctx, func(p string, tokens int) string {
-		return x.versionOf(p, x.kindOf(p), tokens, fp, ret.AbstractChunk)
+		return x.versionOf(p, x.kinds.Of(p), tokens, fp, ret.AbstractChunk)
 	})
 	if err != nil {
 		return fmt.Errorf("index: listing outdated documents: %w", err)

@@ -38,55 +38,78 @@ type Doc struct {
 	yaml     *pyaml.Stream // a YAML document that parsed; nil otherwise
 }
 
-// Read reads src as kind k; title is what a plain-text breadcrumb shows (the file's name).
+// Read reads src as kind k (a derived document's text as the Markdown it is); title is what a
+// plain-text breadcrumb shows (the file's name).
 func Read(src []byte, k kind.Kind, title string) *Doc {
 	d := &Doc{kind: k, title: title, src: src, lines: lineStarts(src)}
-	switch k {
-	case kind.Markdown:
-		d.headings = headings(src, d.lines)
-	case kind.YAML:
-		if st, err := pyaml.Parse(src); err == nil {
-			d.yaml = st
-		}
+	if r := readings.Of(k).read; r != nil {
+		r(d)
 	}
 	return d
 }
 
-// Headings are the file's headings in source order; none outside Markdown, which is the only kind
-// with headings to navigate.
+// reading is how a kind is navigated: what is read of it once, and the breadcrumb at a place.
+type reading struct {
+	read   func(d *Doc)
+	crumbs func(d *Doc, line, col int) []string
+}
+
+// readings are each kind's (kind.Table: a kind added is a kind navigated). Markdown has headings;
+// YAML has key paths; plain text and a registered chunker's file only the title, since a code
+// outline is not AutoDoc's yet (ADR 0216 §3).
+var readings = kind.NewTable(map[kind.Kind]reading{
+	kind.Markdown:   {readHeadings, headingCrumbs},
+	kind.Derived:    {readHeadings, headingCrumbs},
+	kind.YAML:       {readYAML, yamlCrumbs},
+	kind.Text:       {nil, titleCrumbs},
+	kind.Registered: {nil, titleCrumbs},
+})
+
+func readHeadings(d *Doc) { d.headings = headings(d.src, d.lines) }
+
+func readYAML(d *Doc) {
+	if st, err := pyaml.Parse(d.src); err == nil {
+		d.yaml = st
+	}
+}
+
+// headingCrumbs is the heading the place is under and the headings above it, outermost first.
+func headingCrumbs(d *Doc, line, _ int) []string {
+	var stack []Heading
+	for _, h := range d.headings {
+		if h.Line > line {
+			break
+		}
+		for len(stack) > 0 && stack[len(stack)-1].Level >= h.Level {
+			stack = stack[:len(stack)-1]
+		}
+		stack = append(stack, h)
+	}
+	out := make([]string, len(stack))
+	for i, h := range stack {
+		out[i] = h.Text
+	}
+	return out
+}
+
+// yamlCrumbs is the key path to the value at the place.
+func yamlCrumbs(d *Doc, line, col int) []string {
+	if d.yaml == nil {
+		return nil
+	}
+	return yamlPath(d.yaml, d.offset(line, col))
+}
+
+func titleCrumbs(d *Doc, _, _ int) []string { return []string{d.title} }
+
+// Headings are the file's headings in source order; none outside Markdown (and a derived
+// document's text, which is Markdown), the only kind with headings to navigate.
 func (d *Doc) Headings() []Heading { return d.headings }
 
 // Crumbs is the breadcrumb at a place: line is 1-based, col counts bytes into the line. Markdown:
 // the heading the place is under and the headings above it, outermost first. YAML: the key path
 // to the value there. Plain text, and a registered chunker's file: the title.
-func (d *Doc) Crumbs(line, col int) []string {
-	switch d.kind {
-	case kind.Markdown:
-		var stack []Heading
-		for _, h := range d.headings {
-			if h.Line > line {
-				break
-			}
-			for len(stack) > 0 && stack[len(stack)-1].Level >= h.Level {
-				stack = stack[:len(stack)-1]
-			}
-			stack = append(stack, h)
-		}
-		out := make([]string, len(stack))
-		for i, h := range stack {
-			out[i] = h.Text
-		}
-		return out
-	case kind.YAML:
-		if d.yaml == nil {
-			return nil
-		}
-		return yamlPath(d.yaml, d.offset(line, col))
-	case kind.Text, kind.Registered:
-		return []string{d.title} // a code outline is not AutoDoc's yet (ADR 0216 §3)
-	}
-	return nil
-}
+func (d *Doc) Crumbs(line, col int) []string { return readings.Of(d.kind).crumbs(d, line, col) }
 
 // offset is the byte offset of line and col, clamped to the text.
 func (d *Doc) offset(line, col int) int {
@@ -113,7 +136,7 @@ func lineOf(lines []int, off int) int {
 
 // headings walks the file's heading nodes; frontmatter is not the file's text, and is skipped.
 func headings(src []byte, lines []int) []Heading {
-	doc := markdown.Parse(src, markdown.GFM(), markdown.Obsidian())
+	doc := kind.ParseMarkdown(src)
 	var out []Heading
 	seen := map[string]int{}
 	var walk func(*markdown.Node)

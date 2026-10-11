@@ -3,8 +3,7 @@ package index
 import (
 	"context"
 
-	"github.com/yongjohnlee80/golib/parse/markdown"
-
+	"github.com/yongjohnlee80/autodoc/core/kind"
 	"github.com/yongjohnlee80/autodoc/core/store"
 )
 
@@ -14,7 +13,7 @@ import (
 // ReasonAmbiguous, or "" when raw is no link the index keeps (a URL, a heading of from itself, an
 // attachment the workspace does not index).
 func (x *Indexer) ResolveLink(ctx context.Context, from, raw string) (path, reason string, err error) {
-	links := extractLinks(markdown.Parse([]byte(raw), markdown.GFM(), markdown.Obsidian()), from, x.opts.Match)
+	links := extractLinks(kind.ParseMarkdown([]byte(raw)), from, x.opts.Match)
 	if len(links) != 1 {
 		return "", "", nil
 	}

@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/yongjohnlee80/golib/parse/markdown"
+
+	"github.com/yongjohnlee80/autodoc/core/kind"
 )
 
 // cursorLink is the link the cursor is on: its source text, as the daemon records a link's raw,
@@ -16,7 +18,7 @@ type cursorLink struct {
 // linkAt is the link under the cursor (a byte offset into source): a Markdown link, an autolink,
 // or a wikilink naming a page. A wikilink to a heading of this note names none, so is none.
 func linkAt(source []byte, cursor int) (cursorLink, bool) {
-	doc := markdown.Parse(source, markdown.GFM(), markdown.Obsidian())
+	doc := kind.ParseMarkdown(source)
 	var found cursorLink
 	var ok bool
 	var walk func(*markdown.Node)
