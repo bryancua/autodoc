@@ -4,7 +4,6 @@
 package workspace
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -28,18 +27,15 @@ type Workspace struct {
 }
 
 // Open opens the workspace's root with the local driver; a root that is not a directory is
-// ErrNotADirectory.
-func Open(ctx context.Context, cfg config.Workspace) (*Workspace, error) {
+// ErrNotADirectory. The driver holds the opened directory (os.OpenRoot refuses anything else), so
+// no later check of it is needed.
+func Open(cfg config.Workspace) (*Workspace, error) {
 	fsys, err := local.New(cfg.Root)
 	switch {
 	case errors.Is(err, fs.ErrPermission): // a directory it may not open is not a missing one
 		return nil, fmt.Errorf("workspace %q: opening root %s: %w", cfg.Name, cfg.Root, err)
 	case err != nil: // gone, or a file
 		return nil, fmt.Errorf("workspace %q: %s: %w: %w", cfg.Name, cfg.Root, ErrNotADirectory, err)
-	}
-	if fi, err := fsys.Stat(ctx, "."); err != nil || !fi.IsDir() {
-		_ = fsys.Close()
-		return nil, fmt.Errorf("workspace %q: %s: %w", cfg.Name, cfg.Root, ErrNotADirectory)
 	}
 	return &Workspace{Name: cfg.Name, Root: cfg.Root, FS: fsys, Matcher: NewMatcher(cfg.Include, cfg.Exclude)}, nil
 }

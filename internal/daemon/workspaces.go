@@ -251,7 +251,7 @@ func (m *Workspaces) start(id int64, c config.Workspace) (*served, error) {
 	text := m.textExtensionsFor(id)
 	text.store(stored)
 	m.noteCollisions(id, c.Name, stored)
-	ws, err := workspace.Open(m.ctx, c)
+	ws, err := workspace.Open(c)
 	if err != nil {
 		return nil, err
 	}
@@ -625,7 +625,7 @@ func (m *Workspaces) Add(ctx context.Context, c config.Workspace) (rpc.Workspace
 }
 
 func checkRoot(ctx context.Context, c config.Workspace) error {
-	ws, err := workspace.Open(ctx, c)
+	ws, err := workspace.Open(c)
 	if err != nil {
 		return err
 	}

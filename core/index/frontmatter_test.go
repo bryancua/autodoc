@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/yongjohnlee80/autodoc/core/kind"
 	"github.com/yongjohnlee80/autodoc/core/schema"
 )
 
@@ -316,5 +317,17 @@ func TestNoSchemaStillDiagnosesMalformedFrontmatter(t *testing.T) {
 	}
 	if _, err := e.ix.Search(context.Background(), "body", QueryOpts{Facets: map[string][]string{"type": {"adr"}}}); !errors.Is(err, ErrUnknownFacet) {
 		t.Fatalf("facets without a schema: %v, want ErrUnknownFacet", err)
+	}
+}
+
+// A derived file whose format the build registered no deriver for (a .pdf, built in as derived) is
+// identified as the built-in chunkers', as a registered extension without its chunker is.
+func TestAnUnregisteredDerivedFormatTakesTheBuiltInIdentity(t *testing.T) {
+	x := &Indexer{}
+	builtIn := docVersion(indexerVersion(512), false, "fp", false)
+	for p, k := range map[string]kind.Kind{"a.pdf": kind.Derived, "a.rs": kind.Registered} {
+		if got := x.versionOf(p, k, 512, "fp", false); got != builtIn {
+			t.Errorf("%s (%v): %q; want the built-in %q", p, k, got, builtIn)
+		}
 	}
 }
