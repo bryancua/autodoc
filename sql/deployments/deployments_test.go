@@ -21,9 +21,44 @@ import (
 // script NEVER changes (docs/ops/schema-scripts.md): the ledger records the
 // digest it was applied with, and an edit under the same name is a schema no
 // store agrees with. A script adds its line here when it ships in a tagged
-// release; an existing line never changes.
+// release; an existing line never changes. Each digest is the script as the
+// first tag that shipped it has it, and no later tag changed it.
 var released = map[string]map[string]string{
-	dao.DialectSQLite: {},
+	dao.DialectSQLite: {
+		"000001_update_initialize_tables.sql":          "a363a5140ac9d04e34e2b9a314f3e89fdd2477f628cd015b6e88e4df2d42c2bd", // v0.1.0
+		"000002_revert_add_preferences.sql":            "e56c72b7784a1bf92a629bc27d0830518bc6e36f5b80c867814d6a4352ebd536", // v0.1.0
+		"000002_update_add_preferences.sql":            "1758bad5ae89a5218493f797f2e49c4a8f526b599fc8177341707b295b439750", // v0.1.0
+		"000003_revert_provider_context.sql":           "65f3e377db4804716302b304501c45983ede49193f6e8857ab34d09e59187f60", // v0.1.0
+		"000003_update_provider_context.sql":           "14b92989312ddc7ccf9c94de83653c5ff050cf4f485459ecedfd9094f06655b0", // v0.1.0
+		"000004_revert_embedding_model_lookup.sql":     "d4e3553ccb0e8c273eadc8464b74a18ac92135af6323137738e44345fd53f1bb", // v0.1.6
+		"000004_update_embedding_model_lookup.sql":     "335d1ae41ec587a5c7e1f63dc0779b4951b79ba1c6bc90e1059265b763666107", // v0.1.6
+		"000005_revert_workspace_embedding_policy.sql": "5c6a0c102779517c2dca0ae2c940bb148eb37d43c53d3aeb53bf9e70df587c81", // v0.1.7
+		"000005_update_workspace_embedding_policy.sql": "a506ba3c38479f61c9b5768de517b68237e648ea793c7fb5b1df02fa67083155", // v0.1.7
+		"000006_revert_empty_include.sql":              "7e72672711aff13544dfb93a07889ae5b26d5f14de892db5fb88d217c5b8f3e3", // v0.1.9
+		"000006_update_empty_include.sql":              "9ccb8a03c176a29dd4641e34da8c185d991aafc9857f46fe4273d8b8a98fe2e9", // v0.1.9
+		"000007_revert_frontmatter_schema.sql":         "5f62859ddc37f99502e0cb454ff4b6ed4ca224ecef0c3402fa1158c3f0049207", // v0.1.9
+		"000007_update_frontmatter_schema.sql":         "e39cfcc1596e7f22fa0bcc161644b03926f6270aff91654d4304877e0f4fbd99", // v0.1.9
+		"000008_revert_text_extensions.sql":            "a26c62f660167c3dff020e17c1c49a999adb434f94915113bb9a761a52af57d1", // v0.1.9
+		"000008_update_text_extensions.sql":            "052f0795e753d7d320811c7208c96a9f51583f2096247da0d951819fbd657f5f", // v0.1.9
+		"000009_revert_events.sql":                     "a3c42a491894a5ff8813c1b4068a2bc4f9237b721963614fd2431b238ada41c0", // v0.1.9
+		"000009_update_events.sql":                     "8e5662d6d916f0932919e851652789b20198c6c4b547798244afb18304702e4d", // v0.1.9
+		"000010_revert_workspace_provider.sql":         "8c0affd25711ea353cbdcc03ef517ffbc679673c9e149f9ce958b48e586d7055", // v0.1.9
+		"000010_update_workspace_provider.sql":         "015f78da4218145aca891e22384fbf3b7b3ff66709be159dad134e16e7c7be24", // v0.1.9
+		"000011_revert_workspace_databases.sql":        "0658fcc035bd45ed539112f8dbd4aee55cef606244c405689210ef849bd9b61b", // v0.1.11
+		"000011_update_workspace_databases.sql":        "4edfa9ac9e8bb7303b481f578d523c8f36fc4268867e3b6d72c7c92837c8cee9", // v0.1.11
+		"000012_revert_chunk_embed.sql":                "43cea207cb7e2858c9138fdad7f9ee34eadd08e634bc4e1ba79a06ca3cd44abf", // v0.1.12
+		"000012_update_chunk_embed.sql":                "851c770f4839876e68ffc7691490a670abf49b2f6908c3794a46054dcc2933ea", // v0.1.12
+		"000013_revert_rankers.sql":                    "5e7317139ad05fb7f07e3076cea4b78d142d63e15ca70395173fbfcb03c34d63", // v0.1.13
+		"000013_update_rankers.sql":                    "b56a17a96cbb8058dec9370e70ee287bd21e69b02b6bce48a92eca9dbae52fee", // v0.1.13
+		"000014_revert_relation_keys.sql":              "c3ea96f0ffb95f95a4d72732850aaa5506b7428c8e09bdb19faaff2dac9ba1dd", // v0.1.20
+		"000014_update_relation_keys.sql":              "c93a22159807ec24241a968b6fa2ac1a06b82d41f2564e4bdb3e12ac30ec4935", // v0.1.20
+		"000015_revert_model_target.sql":               "e68d1845c9809789e2a95eb51194892bb75d1bdd2c7bdc66d24f5468dde30e43", // v0.1.21
+		"000015_update_model_target.sql":               "b3e427c8cf038b31b75ea293a1e39e56d9a5045af01b36fdf6917e5b9cf1cd52", // v0.1.21
+		"000016_revert_chunk_text.sql":                 "b6abd73c61c995fe025987a4a9fccbd14def5c5c8b578821a000b08b61b1d41e", // v0.1.22
+		"000016_update_chunk_text.sql":                 "20095490a20b1bf3bf24100fd9cc3c32b5be2f4f8a762ac3baa4d74ee639d457", // v0.1.22
+		"000017_revert_todo_journal.sql":               "4d6a59d6bbbc49c41e3cff44bda6ed6067e653812cdb692fd57553906acb430c", // v0.1.38
+		"000017_update_todo_journal.sql":               "722ea9820c78f62864d612d396f7378882141a67240bf993b6c1efa42f4c1159", // v0.1.38
+	},
 }
 
 func names(t *testing.T, eng string) map[string]deploy.Script {
