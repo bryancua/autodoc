@@ -97,7 +97,7 @@ func TestTextExtensionsSayWhenTheyCannotListTheIndex(t *testing.T) {
 	gone, cancel := context.WithCancel(context.Background())
 	cancel()
 	m.applyTextExtensions(gone, s, []string{".log"})
-	if !strings.Contains(log.String(), "index.reindex.failed") {
+	if l := log.String(); !strings.Contains(l, "index.reindex.failed") || !strings.Contains(l, "workspace:kb ") {
 		t.Errorf("the log does not say the reindex failed:\n%s", log.String())
 	}
 	if got := m.textExtensionsFor(s.id).load(); !reflect.DeepEqual(got, []string{".log"}) {
