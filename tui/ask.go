@@ -8,7 +8,8 @@ import (
 // undo: Core.Ask. The question says what goes and what stays; No is the first button, so Enter
 // alone does nothing; Yes runs the asker's OnYes once, on the loop.
 
-// Question is a yes-or-no question.
+// Question is a yes-or-no question. One is asked at a time: a question asked while another is
+// open replaces it, and the first's OnYes never runs.
 type Question struct {
 	Title string // the card's title, itself a question: "remove the provider?"
 	Text  string // what goes, and what stays

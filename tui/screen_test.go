@@ -1241,6 +1241,12 @@ func TestEveryPreferenceIsKept(t *testing.T) {
 		})
 	}
 	post := func(fn func()) { r.h.p.Post(fn) }
+	// a default chosen is kept, though it is in effect already: a later default does not move it
+	if m, err := d.db.Preferences(context.Background()); err != nil || m["tui.preview.images"] != "" {
+		t.Fatalf("the store already holds image previews: %v %v", m, err)
+	}
+	post(func() { r.h.choosePrefNamed(prefImages, 0) }) // yes, the default
+	stored("tui.preview.images", "true")
 	post(func() { r.h.choosePrefNamed(prefMenuHide, 1) }) // no: shown
 	stored("tui.menu.autohide", "false")
 	r.s.WaitForText(t, "the menu bar shows")

@@ -162,14 +162,17 @@ func (c prefChoosers) Commands() map[string]Command {
 }
 
 // choosePref is a chooser's row i chosen: the row's value, on screen and kept, then what follows
-// a change. A row out of range, or the value already in effect, changes nothing.
+// a change of it. The value in effect is kept too, when chosen: it may be a default the store does
+// not hold, and the user who chose it keeps it when the default changes. A row out of range
+// changes nothing.
 func (h *Host) choosePref(s PrefSpec, i int) {
-	if i < 0 || i >= len(s.Choices) || s.Choices[i] == s.value(h.prefs) {
+	if i < 0 || i >= len(s.Choices) {
 		return
 	}
 	v := s.Choices[i]
+	changed := v != s.value(h.prefs)
 	h.setPref(s.Name, v, func(p *prefs) { s.read(p, v) })
-	if s.Changed != nil {
+	if changed && s.Changed != nil {
 		s.Changed(h.prefs)
 	}
 }
