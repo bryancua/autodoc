@@ -68,7 +68,7 @@ func TestStatusFailsAsItsReads(t *testing.T) {
 	if _, err := fresh.Search(ctx, "zebra", QueryOpts{}); err == nil || !strings.Contains(err.Error(), "reading the held documents") {
 		t.Errorf("a search marked its hits with the store closed: %v", err)
 	}
-	if err := fresh.Reindex("a.md"); err == nil {
+	if err := fresh.Reindex(context.Background(), "a.md"); err == nil {
 		t.Error("a reindex decided whether a.md is held with the store closed")
 	}
 	if err := fresh.Revalidate(ctx); err == nil || !strings.Contains(err.Error(), "reading the held documents") {

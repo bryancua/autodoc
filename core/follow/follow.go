@@ -23,10 +23,11 @@ import (
 
 // Store is what the follower reads of the index.
 type Store interface {
-	// Version is the Version a path was indexed at, and whether it is indexed.
-	Version(path string) (vfs.Version, bool)
+	// Version is the Version a path was indexed at, and whether it is indexed; a path not indexed
+	// is no error.
+	Version(ctx context.Context, path string) (vfs.Version, bool, error)
 	// PathsUnder lists the indexed paths under dir ("." for all of them).
-	PathsUnder(dir string) []string
+	PathsUnder(ctx context.Context, dir string) ([]string, error)
 }
 
 // Queue takes paths for the indexer to re-read. Touch must not block for long: the follower calls
@@ -266,23 +267,29 @@ func (f *Follower) handle(ctx context.Context, ev vfs.Event) {
 		f.reconcile(ctx, ev.Path)
 	case ev.Op == vfs.OpRemove:
 		// a directory moved out or deleted reports only itself: its indexed files go with it
-		f.touch(ev.Path)
-		for _, p := range f.store.PathsUnder(ev.Path) {
+		f.touch(ctx, ev.Path)
+		indexed, err := f.store.PathsUnder(ctx, ev.Path)
+		if err != nil {
+			// what was indexed there is unknown: rescanned with backoff, and missing then
+			f.updateRetry(ev.Path, map[string]error{ev.Path: err})
+			return
+		}
+		for _, p := range indexed {
 			f.queue.Touch(p)
 		}
 	default:
-		f.touch(ev.Path)
+		f.touch(ctx, ev.Path)
 	}
 }
 
 // touch queues p when the indexer could care: it matches the workspace, or it is indexed (and may
-// no longer be eligible).
-func (f *Follower) touch(p string) {
+// no longer be eligible), or the index could not say whether it is (the indexer decides).
+func (f *Follower) touch(ctx context.Context, p string) {
 	if f.match(p) {
 		f.queue.Touch(p)
 		return
 	}
-	if _, ok := f.store.Version(p); ok {
+	if _, ok, err := f.store.Version(ctx, p); ok || err != nil {
 		f.queue.Touch(p)
 	}
 }
@@ -315,15 +322,23 @@ func (f *Follower) reconcile(ctx context.Context, dir string) {
 			continue
 		}
 		seen[fi.Path] = true
-		if v, ok := f.store.Version(fi.Path); !ok || v != fi.Version {
+		// an index that cannot say has the indexer read it: it compares the version itself
+		if v, ok, err := f.store.Version(ctx, fi.Path); err != nil || !ok || v != fi.Version {
 			f.queue.Touch(fi.Path)
 		}
 	}
 	if ctx.Err() != nil {
 		return
 	}
+	indexed, err := f.store.PathsUnder(ctx, dir)
+	if err != nil && ctx.Err() == nil {
+		failed[dir] = err // what is gone under dir is unknown: dir is rescanned with backoff
+	}
 	f.updateRetry(dir, failed)
-	for _, p := range f.store.PathsUnder(dir) {
+	if err != nil {
+		return
+	}
+	for _, p := range indexed {
 		if !seen[p] && !f.covered(p) {
 			f.queue.Touch(p) // the indexer Stats it and finds it gone or ineligible
 		}

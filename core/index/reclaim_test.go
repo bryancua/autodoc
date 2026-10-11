@@ -166,7 +166,7 @@ func TestAReclaimTakesBatches(t *testing.T) {
 	if writes != 4 { // 2 + 2 + 1 vectors, then the row
 		t.Errorf("%d writes, want 4: three batches of at most 2, then the row", writes)
 	}
-	if _, ok := e.store.Version("between.md"); !ok {
+	if _, ok, _ := e.store.Version(context.Background(), "between.md"); !ok {
 		t.Error("the write between the batches did not commit")
 	}
 }

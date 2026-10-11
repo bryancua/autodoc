@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/yongjohnlee80/golib/logger"
+
 	"github.com/yongjohnlee80/autodoc/core/config"
 	"github.com/yongjohnlee80/autodoc/core/edition"
 	"github.com/yongjohnlee80/autodoc/core/store"
@@ -115,7 +117,7 @@ func (m *Workspaces) Configure(ctx context.Context, name string, c store.Changes
 		}
 	}
 	if c.TextExtensions != nil {
-		m.applyTextExtensions(s, texts)
+		m.applyTextExtensions(ctx, s, texts)
 	}
 	if c.EmbeddingPolicy != nil {
 		m.applyPolicy(name, s, *c.EmbeddingPolicy)
@@ -137,7 +139,9 @@ func (m *Workspaces) Configure(ctx context.Context, name string, c store.Changes
 		now := m.served[name]
 		m.mu.Unlock()
 		if now != nil && now.w.Index != nil {
-			_ = now.w.Index.Reindex("") // the whole workspace is never refused
+			if err := now.w.Index.Reindex(ctx, ""); err != nil { // never refused: only the store unread
+				logger.Warning(m.opts.Log, err, logger.Fields{"event": "index.reindex.failed", "workspace": name})
+			}
 		}
 	}
 	if c.AbstractChunk != nil {
@@ -272,7 +276,7 @@ func (m *Workspaces) undoConfigure(ctx context.Context, id int64, was, now strin
 		h.setPath(*inv.SchemaPath)
 	}
 	if inv.TextExtensions != nil {
-		m.applyTextExtensions(cur, *inv.TextExtensions)
+		m.applyTextExtensions(ctx, cur, *inv.TextExtensions)
 	}
 	if inv.EmbeddingPolicy != nil {
 		m.applyPolicy(was, cur, *inv.EmbeddingPolicy)

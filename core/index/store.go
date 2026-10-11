@@ -128,23 +128,27 @@ func (s *Store) outdated(ctx context.Context, want func(path string, tokens int)
 }
 
 // Version is the Version a path was indexed at, and whether it is indexed. It is what the
-// follower compares with the file's Version (0203 §4.3).
-func (s *Store) Version(path string) (vfs.Version, bool) {
+// follower compares with the file's Version (0203 §4.3). A path not indexed is no error; a read
+// that failed is.
+func (s *Store) Version(ctx context.Context, path string) (vfs.Version, bool, error) {
 	var v string
-	err := s.read(context.Background(), func(tx *store.Tx) error {
+	err := s.read(ctx, func(tx *store.Tx) error {
 		d, err := s.sc.Documents(tx).With(store.DocPath, path).Get(store.DocVersion)
 		if err == nil {
 			v = d.Version
 		}
 		return err
 	})
-	return vfs.Version(v), err == nil
+	if errors.Is(err, dao.ErrNoRows) {
+		return "", false, nil
+	}
+	return vfs.Version(v), err == nil, err
 }
 
 // PathsUnder lists the indexed paths under dir ("." for all), in path order.
-func (s *Store) PathsUnder(dir string) []string {
+func (s *Store) PathsUnder(ctx context.Context, dir string) ([]string, error) {
 	var out []string
-	_ = s.read(context.Background(), func(tx *store.Tx) error {
+	err := s.read(ctx, func(tx *store.Tx) error {
 		d := s.sc.Documents(tx)
 		if dir != "." {
 			d = d.WithPredicate(under(`"document"."path"`, dir))
@@ -155,7 +159,7 @@ func (s *Store) PathsUnder(dir string) []string {
 		}
 		return err
 	})
-	return out
+	return out, err
 }
 
 // under is the condition that the path column col is dir or below it: the range ["dir/", "dir0")

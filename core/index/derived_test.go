@@ -140,7 +140,7 @@ func TestADerivedTextUnderAnotherIdentityIsRefused(t *testing.T) {
 	if n := d.derives.Load(); n != 1 {
 		t.Fatalf("derived %d times: a refusal of the file's own is retried", n)
 	}
-	if _, ok := e.store.Version("a.pdf"); ok {
+	if _, ok, _ := e.store.Version(context.Background(), "a.pdf"); ok {
 		t.Fatal("a refused text was indexed")
 	}
 }
@@ -155,7 +155,7 @@ func TestOversizedDerivedTextIsRefusedUnread(t *testing.T) {
 	d.reads.Store(0)
 	e.write("a.pdf", "kestrel, now with a gazetteer")
 	e.ix.Touch("a.pdf")
-	e.eventually("a.pdf refused", func() bool { _, ok := e.store.Version("a.pdf"); return !ok })
+	e.eventually("a.pdf refused", func() bool { _, ok, _ := e.store.Version(context.Background(), "a.pdf"); return !ok })
 	e.failing("a.pdf", fmt.Sprintf("%d bytes of text, over %d", derived.MaxText+1, derived.MaxText))
 	if n := d.reads.Load(); n != 0 {
 		t.Fatalf("the oversized text was read %d times", n)
@@ -207,7 +207,7 @@ func TestTheDeriversOwnFailureKeepsTheRow(t *testing.T) {
 			d := &pdfDeriver{version: "1"}
 			e := newEnv(t, Options{Match: withPDF, Registrations: deriving(t, d), RetryDelay: time.Millisecond, MaxRetryDelay: 5 * time.Millisecond})
 			e.put("a.pdf", "kestrel")
-			indexed, _ := e.store.Version("a.pdf")
+			indexed, _, _ := e.store.Version(context.Background(), "a.pdf")
 			d.fail.Store(c.mode)
 			before := d.derives.Load()
 			e.write("a.pdf", "kestrel and merlin")
@@ -217,7 +217,7 @@ func TestTheDeriversOwnFailureKeepsTheRow(t *testing.T) {
 			if n := d.derives.Load() - before; n < 3 {
 				t.Fatalf("%d Derive calls over three tries", n)
 			}
-			if v, ok := e.store.Version("a.pdf"); !ok || v != indexed {
+			if v, ok, _ := e.store.Version(context.Background(), "a.pdf"); !ok || v != indexed {
 				t.Fatalf("the row left or moved: %q, %v", v, ok)
 			}
 			if r := e.query("kestrel", QueryOpts{Mode: ModeLexical}); len(r.Hits) != 1 {
@@ -256,5 +256,5 @@ func TestARefusalDeletesOnlyARowItsFileLeft(t *testing.T) {
 	}
 	e.write("a.pdf", "kestrel, edited")
 	e.ix.Touch("a.pdf")
-	e.eventually("the edited file's row deleted", func() bool { _, ok := e.store.Version("a.pdf"); return !ok })
+	e.eventually("the edited file's row deleted", func() bool { _, ok, _ := e.store.Version(context.Background(), "a.pdf"); return !ok })
 }

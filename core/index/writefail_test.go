@@ -32,7 +32,7 @@ func (e *env) renamed(table string) (undo func()) {
 func TestAFailedCommitWritesNothingAndIsRetried(t *testing.T) {
 	e := newEnv(t, Options{})
 	e.put("keep.md", "---\ntags: [old]\n---\n# Keep\n\nfirst words [[other]]\n", "gone.md", "to be removed\n")
-	version := func(p string) string { v, _ := e.store.Version(p); return string(v) }
+	version := func(p string) string { v, _, _ := e.store.Version(context.Background(), p); return string(v) }
 	settle := func() { time.Sleep(150 * time.Millisecond) } // several batches try and fail
 	for _, c := range []struct {
 		name, table, op string
@@ -42,11 +42,11 @@ func TestAFailedCommitWritesNothingAndIsRetried(t *testing.T) {
 	}{
 		{"a new document's row", "document", "INSERT",
 			func() { e.write("new1.md", "fresh\n"); e.ix.Touch("new1.md") },
-			func() bool { _, ok := e.store.Version("new1.md"); return !ok },
+			func() bool { _, ok, _ := e.store.Version(context.Background(), "new1.md"); return !ok },
 			func() { e.indexedAt("new1.md") }},
 		{"a new document's chunks", "chunk", "INSERT",
 			func() { e.write("new2.md", "fresh words\n"); e.ix.Touch("new2.md") },
-			func() bool { _, ok := e.store.Version("new2.md"); return !ok },
+			func() bool { _, ok, _ := e.store.Version(context.Background(), "new2.md"); return !ok },
 			func() { e.indexedAt("new2.md") }},
 		{"a changed document's row", "document", "UPDATE",
 			func() { e.write("keep.md", "# Keep\n\nsecond words\n"); e.ix.Touch("keep.md") },
@@ -66,11 +66,11 @@ func TestAFailedCommitWritesNothingAndIsRetried(t *testing.T) {
 			func() { e.indexedAt("keep.md") }},
 		{"the change log", "change", "INSERT",
 			func() { e.write("new3.md", "logged\n"); e.ix.Touch("new3.md") },
-			func() bool { _, ok := e.store.Version("new3.md"); return !ok },
+			func() bool { _, ok, _ := e.store.Version(context.Background(), "new3.md"); return !ok },
 			func() { e.indexedAt("new3.md") }},
 		{"the workspace's counters", "workspace", "UPDATE",
 			func() { e.write("new4.md", "counted\n"); e.ix.Touch("new4.md") },
-			func() bool { _, ok := e.store.Version("new4.md"); return !ok },
+			func() bool { _, ok, _ := e.store.Version(context.Background(), "new4.md"); return !ok },
 			func() { e.indexedAt("new4.md") }},
 		{"a removed document's row", "document", "DELETE",
 			func() { _ = e.fsys.Remove(context.Background(), "gone.md"); e.ix.Touch("gone.md") },

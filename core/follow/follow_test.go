@@ -32,22 +32,30 @@ type model struct {
 	mu      sync.Mutex
 	docs    map[string]vfs.Version
 	touched map[string]int // every path the follower handed over
+	// failing makes the index's reads fail, as a store that cannot be read
+	failing error
 }
 
 func newModel(fsys vfs.FS) *model {
 	return &model{fsys: fsys, docs: map[string]vfs.Version{}, touched: map[string]int{}}
 }
 
-func (m *model) Version(p string) (vfs.Version, bool) {
+func (m *model) Version(_ context.Context, p string) (vfs.Version, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.failing != nil {
+		return "", false, m.failing
+	}
 	v, ok := m.docs[p]
-	return v, ok
+	return v, ok, nil
 }
 
-func (m *model) PathsUnder(dir string) []string {
+func (m *model) PathsUnder(_ context.Context, dir string) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.failing != nil {
+		return nil, m.failing
+	}
 	var out []string
 	for p := range m.docs {
 		if dir == "." || p == dir || strings.HasPrefix(p, dir+"/") {
@@ -55,7 +63,13 @@ func (m *model) PathsUnder(dir string) []string {
 		}
 	}
 	sort.Strings(out)
-	return out
+	return out, nil
+}
+
+func (m *model) fail(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.failing = err
 }
 
 func (m *model) Touch(p string) {
@@ -279,7 +293,7 @@ func TestChangeDuringStartScanIsNotLost(t *testing.T) {
 	fsys := &hookFS{FS: inner, hook: func() { write(t, root, "late.md", "made during the scan") }}
 	m := newModel(fsys)
 	start(t, fsys, m)
-	eventually(t, "the late file", func() bool { _, ok := m.Version("late.md"); return ok })
+	eventually(t, "the late file", func() bool { _, ok, _ := m.Version(context.Background(), "late.md"); return ok })
 	converges(t, m, fsys, "a change during the start scan")
 }
 
@@ -527,8 +541,8 @@ func TestDegradedStillConverges(t *testing.T) {
 	}
 
 	memWrite(t, ff, "b/two.md", "added while degraded")
-	within(t, 500*time.Millisecond, "the new file under b/, before the next setup retry", func() bool { _, ok := m.Version("b/two.md"); return ok })
-	if _, ok := m.Version("a/old.md"); !ok {
+	within(t, 500*time.Millisecond, "the new file under b/, before the next setup retry", func() bool { _, ok, _ := m.Version(context.Background(), "b/two.md"); return ok })
+	if _, ok, _ := m.Version(context.Background(), "a/old.md"); !ok {
 		t.Fatal("a document under the unreadable a/ was deleted: unreadable is unknown, not empty")
 	}
 	eventually(t, "a/ reported as retrying", func() bool {
@@ -580,7 +594,7 @@ func TestUnreadableSubtreeRetriesOnItsOwn(t *testing.T) {
 	memWrite(t, s, "a/y.md", "new")
 	s.send(vfs.Event{Path: "a", Op: vfs.OpOverflow})
 	eventually(t, "a/ retrying", func() bool { return len(f.Status().Retrying) == 1 })
-	if _, ok := m.Version("a/x.md"); !ok {
+	if _, ok, _ := m.Version(context.Background(), "a/x.md"); !ok {
 		t.Fatal("a document under the unreadable a/ was deleted")
 	}
 	s.setFail("a", false)
@@ -641,16 +655,16 @@ func TestRescanReconcilesTheRoot(t *testing.T) {
 			}
 			f := startWith(t, ff, m, opts)
 			eventually(t, want, func() bool { return f.Status().Following == want })
-			eventually(t, "a.md indexed", func() bool { _, ok := m.Version("a.md"); return ok })
+			eventually(t, "a.md indexed", func() bool { _, ok, _ := m.Version(context.Background(), "a.md"); return ok })
 			m.mu.Lock()
 			delete(m.docs, "a.md")
 			m.mu.Unlock()
 			time.Sleep(100 * time.Millisecond)
-			if _, ok := m.Version("a.md"); ok {
+			if _, ok, _ := m.Version(context.Background(), "a.md"); ok {
 				t.Fatal("a.md came back without a Rescan: this test would show nothing")
 			}
 			f.Rescan()
-			within(t, 500*time.Millisecond, "a.md found by the rescan", func() bool { _, ok := m.Version("a.md"); return ok })
+			within(t, 500*time.Millisecond, "a.md found by the rescan", func() bool { _, ok, _ := m.Version(context.Background(), "a.md"); return ok })
 		})
 	}
 }
@@ -698,4 +712,38 @@ func TestExcludedDirectoriesAreNeitherReadNorWatched(t *testing.T) {
 			t.Errorf("the follower touched %s, inside an excluded directory", p)
 		}
 	}
+}
+
+// TestAnIndexThatCannotBeReadIsRetried: while the index's reads fail, what was indexed under a
+// removed directory is unknown, neither kept nor lost: the directory is retried with backoff, and
+// once the index reads again its documents go. A path the index cannot place is touched, for the
+// indexer to decide.
+func TestAnIndexThatCannotBeReadIsRetried(t *testing.T) {
+	ctx := context.Background()
+	s := newScripted()
+	memWrite(t, s, "a/x.md", "x")
+	memWrite(t, s, "b.md", "b")
+	m := newModel(s)
+	f := start(t, s, m)
+	converges(t, m, s, "the start reconcile")
+	eventually(t, "the watch", func() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.events != nil })
+
+	m.fail(errors.New("the store is locked"))
+	if err := s.Remove(ctx, "a/x.md"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Remove(ctx, "a"); err != nil {
+		t.Fatal(err)
+	}
+	s.send(vfs.Event{Path: "a", Op: vfs.OpRemove})
+	eventually(t, "a retrying", func() bool { r := f.Status().Retrying; return len(r) == 1 && r[0] == "a" })
+	if _, ok := m.snapshot()["a/x.md"]; !ok {
+		t.Fatal("a document went while the index could not be read")
+	}
+	s.send(vfs.Event{Path: "c.txt", Op: vfs.OpCreate}) // not the workspace's, and the index cannot say
+	eventually(t, "c.txt handed over", func() bool { m.mu.Lock(); defer m.mu.Unlock(); return m.touched["c.txt"] > 0 })
+
+	m.fail(nil)
+	converges(t, m, s, "the index readable again")
+	eventually(t, "the retry done", func() bool { return len(f.Status().Retrying) == 0 })
 }
