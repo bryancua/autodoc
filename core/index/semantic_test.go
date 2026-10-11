@@ -326,7 +326,7 @@ func TestAQueryVectorOfTheWrongSizeIsAnEmbedFailure(t *testing.T) {
 	p.short = "quokka"
 	p.mu.Unlock()
 	res := e.query("zebra quokka", QueryOpts{})
-	if res.Semantic != SemanticError || res.SemanticError != ErrEmbedFailed.Error() || res.ModeUsed != ModeLexical {
+	if res.Semantic != SemanticError || res.SemanticError != EmbedFailedMessage || res.ModeUsed != ModeLexical {
 		t.Errorf("auto: %+v", res)
 	}
 	if _, err := e.ix.Search(context.Background(), "zebra quokka", QueryOpts{Mode: ModeSemantic}); !errors.Is(err, ErrEmbedFailed) {
@@ -343,7 +343,7 @@ func TestQueryEmbedFailure(t *testing.T) {
 	e.ready()
 	p.fail("stripes")
 	res := e.query("zebra stripes", QueryOpts{})
-	if res.Semantic != SemanticError || res.SemanticError != ErrEmbedFailed.Error() || res.ModeUsed != ModeLexical ||
+	if res.Semantic != SemanticError || res.SemanticError != EmbedFailedMessage || res.ModeUsed != ModeLexical ||
 		!reflect.DeepEqual(via(res), []string{"a.md lexical"}) {
 		t.Errorf("auto: %+v", res)
 	}

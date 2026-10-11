@@ -3,11 +3,12 @@ package index
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"path"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/yongjohnlee80/golib/errs"
 
 	"github.com/yongjohnlee80/autodoc/core/paths"
 	"github.com/yongjohnlee80/autodoc/core/schema"
@@ -29,7 +30,7 @@ const MaxDocumentsPage = 500
 var DefaultDocumentFields = []string{"title", "type", "status", "updated", "tags", "abstract"}
 
 // ErrBadSort is an order index.documents does not know.
-var ErrBadSort = errors.New("index: sort is updated, path or indexed")
+var ErrBadSort = errs.Sentinel(errs.ErrInvalidArgument, "index: sort is updated, path or indexed")
 
 // DocumentsOpts narrows and orders index.documents.
 type DocumentsOpts struct {

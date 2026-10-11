@@ -426,7 +426,7 @@ func (m *Manager) RemoveMalformed(ctx context.Context, at At, p string) error {
 	case derr == nil:
 		return fmt.Errorf("%w: %s is a valid task: todos.remove removes it", ErrInvalid, p)
 	case strings.Contains(derr.Error(), automationRemoved):
-		return fmt.Errorf("%w: %s: %v; the daemon never deletes it", ErrInvalid, p, derr)
+		return fmt.Errorf("%w: %s: %w; the daemon never deletes it", ErrInvalid, p, derr)
 	}
 	c := Change{ID: strings.TrimSuffix(path.Base(p), ".md"), Kind: KindRemoveMalformed, Reason: derr.Error(), FromRev: rev(doc.Content)}
 	return m.remove(ctx, st, c, p, doc.Version)

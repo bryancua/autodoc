@@ -9,6 +9,8 @@ import (
 	"io/fs"
 	"os"
 	"sync"
+
+	"github.com/yongjohnlee80/golib/errs"
 )
 
 // THE KEYSLOT — the store's key, which seals the secrets it keeps (an embedding provider's API
@@ -25,10 +27,10 @@ import (
 const keySize = 32
 
 // ErrKeyslotExposed is a keyslot file others can read: the store will not use it.
-var ErrKeyslotExposed = errors.New("store: the keyslot file is readable by others; make it 0600")
+var ErrKeyslotExposed = errs.Sentinel(errs.ErrPrecondition, "store: the keyslot file is readable by others; make it 0600")
 
 // ErrSealed is a secret the store's key does not open: sealed under another key, or moved.
-var ErrSealed = errors.New("store: the secret does not open with this store's key")
+var ErrSealed = errs.Sentinel(errs.ErrPrecondition, "store: the secret does not open with this store's key")
 
 // keyslot is the store's key, read or made once.
 type keyslot struct {

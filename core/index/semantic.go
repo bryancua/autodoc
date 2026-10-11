@@ -42,15 +42,19 @@ var ErrModelInUse = errs.Sentinel(errs.ErrPrecondition, "index: the model is in 
 
 // ErrEmbedFailed is a semantic query whose text the provider could not embed (EmbedFailed,
 // -32067): retry later, or search lexically.
-var ErrEmbedFailed = errors.New("index: the query could not be embedded")
+// EmbedFailedMessage is what a search's semantic_error says when its query could not be embedded:
+// a constant, so a client reads the same words whatever the provider said.
+const EmbedFailedMessage = "index: the query could not be embedded"
+
+var ErrEmbedFailed = errs.Sentinel(errs.ErrPrecondition, "index: the query could not be embedded")
 
 // ErrSwitching is a semantic query while a new model fills: the old model is offline, and the new
 // one does not cover every chunk yet (Switching, -32069). Search lexically until it does.
-var ErrSwitching = errors.New("index: a new model is filling; search by words until it is ready")
+var ErrSwitching = errs.Sentinel(errs.ErrPrecondition, "index: a new model is filling; search by words until it is ready")
 
 // errOffline is embedding with a model other than the target's: the one a filling target
 // replaces, offline for the switch.
-var errOffline = errors.New("index: the model is offline while a new one fills")
+var errOffline = errs.Sentinel(errs.ErrPrecondition, "index: the model is offline while a new one fills")
 
 // The semantic tier's constants (ADR 0204 §4.4, §4.5).
 const (
