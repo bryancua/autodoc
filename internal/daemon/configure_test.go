@@ -5,15 +5,19 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/yongjohnlee80/golib/dao/sqlite"
 	"github.com/yongjohnlee80/golib/errs"
+	"github.com/yongjohnlee80/golib/logger"
 
 	"github.com/yongjohnlee80/autodoc/core/config"
 	"github.com/yongjohnlee80/autodoc/core/index"
 	"github.com/yongjohnlee80/autodoc/core/store"
+	"github.com/yongjohnlee80/autodoc/core/workspace"
 )
 
 func ptr[T any](v T) *T { return &v }
@@ -322,4 +326,50 @@ func TestConfigure_TheAbstractChunkRebuildsTheMarkdown(t *testing.T) {
 		got, perr := index.ParseIdentity(version)
 		return err == nil && perr == nil && got.Abstract == "a1"
 	})
+}
+
+// A save that cannot finish what follows its write says so: new patterns on a root that is gone
+// are refused before anything is stored or restarted, and a new section size whose reindex cannot read the
+// documents is kept and logged as index.reindex.failed.
+func TestConfigure_SaysWhatItCouldNotDo(t *testing.T) {
+	log := &lockedLog{}
+	m, db := openWith(t, Options{Databases: true, Log: logger.New(logger.WithWriter(log))})
+	kbWith(t, m, map[string]string{"a.md": "# A\n"}, "**/*.md")
+	indexed(t, m, "kb", 1)
+	w, _ := m.Get("kb")
+
+	raw, err := sqlite.Open(context.Background(), "file:"+db.Path()+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = raw.Close() })
+	exec := func(q string) {
+		t.Helper()
+		if _, err := raw.ExecContext(context.Background(), q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	exec(`ALTER TABLE "document" RENAME TO "document_aside"`)
+	err = m.Configure(context.Background(), "kb", store.Changes{SectionTokens: ptr(256)})
+	exec(`ALTER TABLE "document_aside" RENAME TO "document"`)
+	if err != nil {
+		t.Fatalf("the section size was not saved: %v", err)
+	}
+	if !strings.Contains(log.String(), "index.reindex.failed") {
+		t.Errorf("the failed reindex is not in the log:\n%s", log.String())
+	}
+
+	if err := os.RemoveAll(w.Root()); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Configure(context.Background(), "kb", store.Changes{Include: ptr([]string{"**/*.txt"}), Exclude: ptr([]string{})}); !errors.Is(err, workspace.ErrNotADirectory) {
+		t.Errorf("new patterns on a root that is gone: %v; want ErrNotADirectory", err)
+	}
+	list, _ := db.Workspaces(context.Background())
+	if len(list) != 1 || !slices.Equal(list[0].Include, []string{"**/*.md"}) {
+		t.Errorf("the refused patterns were stored: %+v", list)
+	}
+	if now, _ := m.Get("kb"); now != w {
+		t.Error("the workspace was restarted: the root was not checked before the save")
+	}
 }

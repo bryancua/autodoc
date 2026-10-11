@@ -28,8 +28,8 @@ func TestTheIndexVerbsFailAsTheirReads(t *testing.T) {
 		t.Fatal(err)
 	}
 	fsys := memfs.New()
-	ws := &Workspace{Name: "kb", Root: "/roots/kb", Index: index.New(index.NewStore(db, row.ID), fsys, index.WithMatch(md)),
-		Docs: docs.New(fsys, md)}
+	ws := Static(WorkspaceInfo{Name: "kb", Root: "/roots/kb", Index: index.New(index.NewStore(db, row.ID), fsys, index.WithMatch(md)),
+		Docs: docs.New(fsys, md)})
 	r := &rig{t: t, sock: shortSocket(t)}
 	ln, err := net.Listen("unix", r.sock)
 	if err != nil {

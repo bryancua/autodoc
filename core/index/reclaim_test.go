@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/yongjohnlee80/golib/logger"
 
 	"github.com/yongjohnlee80/autodoc/core/store"
 )
@@ -325,4 +328,65 @@ func TestAFailedTargetWriteChangesNothing(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+}
+
+// TestAReclaimFailsAsItsStatements: a model already reclaimed is no error; each read and write of
+// a reclaim and a sweep (the model's row, its vectors) fails as an error and leaves the model as
+// it was; a sweep asked before the indexer is ready, its request gone, returns that; and a reclaim
+// queued while the queue is full is deferred to the next start's sweep, in the log.
+func TestAReclaimFailsAsItsStatements(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, options{})
+	if r, err := ReclaimStore(ctx, e.db, e.ws, "never|x"); err != nil || r.Vectors != 0 || r.Gone {
+		t.Errorf("a model never there: %+v, %v; want nothing reclaimed", r, err)
+	}
+	e.seedModel(e.ws, "old|x", 3, 0, 0)
+	for _, table := range []string{"model", "embedding"} {
+		undo := e.renamed(table)
+		if _, err := ReclaimStore(ctx, e.db, e.ws, "old|x"); err == nil {
+			t.Errorf("the %s table unreadable: the reclaim succeeded", table)
+		}
+		if _, err := SweepStore(ctx, e.db, e.ws); err == nil {
+			t.Errorf("the %s table unreadable: the sweep succeeded", table)
+		}
+		undo()
+	}
+	// the instrument: unrefused, the same reclaim takes the model whole
+	if r, err := ReclaimStore(ctx, e.db, e.ws, "old|x"); err != nil || r.Vectors != 3 || !r.Gone {
+		t.Fatalf("the reclaim after: %+v, %v; want 3 vectors and the row gone", r, err)
+	}
+
+	gone, cancel := context.WithCancel(ctx)
+	cancel()
+	log := &lockedLog{}
+	x := newIndexer(e.store, e.fsys, options{Logger: logger.New(logger.WithWriter(log))}) // never run: never ready
+	if _, err := x.Sweep(gone); err == nil {
+		t.Error("a sweep of an indexer never ready, its request gone, returned no error")
+	}
+	x.reclaimLater("") // nothing to reclaim
+	for len(x.reclaims) < cap(x.reclaims) {
+		x.reclaims <- "queued|x"
+	}
+	x.reclaimLater("late|x")
+	if s := log.String(); !strings.Contains(s, "model.reclaim.deferred") || !strings.Contains(s, "late|x") || strings.Count(s, "model.reclaim.deferred") != 1 {
+		t.Errorf("the deferred reclaim is not in the log once:\n%s", s)
+	}
+}
+
+// lockedLog is a log the indexer's goroutines may write while a test reads it.
+type lockedLog struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *lockedLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
 }
