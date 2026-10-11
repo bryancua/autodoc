@@ -21,6 +21,7 @@ import (
 	"github.com/yongjohnlee80/golib/search/embed"
 	"github.com/yongjohnlee80/golib/vfs"
 
+	"github.com/yongjohnlee80/autodoc/core/clock"
 	"github.com/yongjohnlee80/autodoc/core/derived"
 	"github.com/yongjohnlee80/autodoc/core/kind"
 	"github.com/yongjohnlee80/autodoc/core/registrations"
@@ -51,8 +52,10 @@ type Options struct {
 	// (default 1 s); each failure after that doubles the wait, up to MaxRetryDelay (default 5 min).
 	RetryDelay    time.Duration
 	MaxRetryDelay time.Duration
-	// Now is the clock (default time.Now); tests set it to age the change log.
-	Now func() time.Time
+	// Now is the clock the index's recorded times read (default time.Now): the change log's age, a
+	// refused text's retry_at. The writer's batching and a failed read's retry are waits on timers,
+	// and stay on the monotonic clock.
+	Now clock.Clock
 	// afterRead, when set (tests only), runs in the worker once a path's content is read, before the
 	// result goes to the writer: the seam that lets a test change and touch the file in between.
 	afterRead func(path string)
@@ -201,7 +204,7 @@ func NewIndexer(store *Store, fsys vfs.FS, opts Options) *Indexer {
 		work:    make(chan workItem), ops: make(chan op), ready: make(chan struct{}), reclaims: make(chan string, 64),
 		statusTurn: make(chan struct{}, 1)}
 	if opts.Provider != nil {
-		ix.sem = newSemantic(opts.Provider)
+		ix.sem = newSemantic(opts.Provider, opts.Now)
 	}
 	newSearcher := opts.NewSearcher
 	if newSearcher == nil {

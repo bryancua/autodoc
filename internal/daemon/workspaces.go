@@ -263,7 +263,7 @@ func (m *Workspaces) start(id int64, c config.Workspace) (*served, error) {
 	ix := index.NewIndexer(index.Open(m.db, id), ws.FS, index.Options{Match: ws.Matcher.Match, Provider: provider,
 		BatchDelay: m.opts.BatchDelay, Logger: m.opts.Log, Workspace: c.Name, ExternalEmbedding: true,
 		OnEmbeddingWork: func() { m.queue.wakeWorkspace(c.Name) }, Schema: sh.get, TextExtensions: text.load,
-		Registrations: m.opts.Registrations, Rank: m.opts.Rank})
+		Registrations: m.opts.Registrations, Rank: m.opts.Rank, Now: m.db.Clock()})
 	ix.SetSemanticPaused(!m.queue.setPolicy(c.Name, policy))
 	f := follow.New(ws.FS, ix, ix, follow.Options{PollInterval: m.opts.Poll, Match: ws.Matcher.Match, Excluded: ws.Matcher.Excluded})
 	ix.SetRescanner(f) // index.reindex(ws, "") finds the files the index lacks through the follower

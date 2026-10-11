@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"time"
 
 	"github.com/yongjohnlee80/golib/dao"
 	"github.com/yongjohnlee80/golib/errs"
@@ -21,7 +20,7 @@ func (s *Store) AppendEvent(ctx context.Context, e Event) (int64, error) {
 	err := s.Write(ctx, func(tx *Tx) error {
 		var err error
 		seq, err = tx.t.events.On(tx.tx).Set(EventKind, e.Kind).Set(EventWorkspace, e.Workspace).
-			Set(EventClient, e.Client).Set(EventDetail, e.Detail).Set(EventAt, time.Now().Unix()).Insert()
+			Set(EventClient, e.Client).Set(EventDetail, e.Detail).Set(EventAt, s.now.Now().Unix()).Insert()
 		if err != nil {
 			return err
 		}
