@@ -94,7 +94,6 @@ func (h *Host) state() map[string]any {
 		"App.newPreviewAt":    0,
 
 		// the leader card
-		"App.leaderText": cardText(h.keysLeader),
 
 		// the editor's preferences
 		"App.keymaps": choices(keymapLabels...),
@@ -251,7 +250,7 @@ func (h *Host) state() map[string]any {
 		"App.managerIndex":   0,
 		"App.workspaceIndex": 0,
 
-		"App.helpText":      helpText(h.keysLeader),
+		"App.helpText":      helpText(h.keys),
 		"App.arrangeTitle":  "arrange a panel",
 		"App.tutorialTitle": "", "App.tutorialText": "", "App.tutorialBack": false, "App.tutorialNext": true,
 		"App.gui":           h.gui,
@@ -260,6 +259,9 @@ func (h *Host) state() map[string]any {
 		"App.fontSizes":     choices(fontSizeLabels()...),
 		"App.zoomSteps":     choices(zoomLabels()...),
 		"App.cellFontIndex": 0, "App.proseFontIndex": 0,
+	}
+	for k, v := range h.keys.cardState() {
+		st[k] = v
 	}
 	for k, v := range h.aboutState() {
 		st[k] = v

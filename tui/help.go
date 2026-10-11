@@ -1,15 +1,10 @@
 package tui
 
-import "strings"
-
 // HELP — the keys, and what each needs (a key that silently needs something reads as broken).
 
-// helpText is Help › Keys: the Window's keys, the leader card's as the card lists them (keys.go),
-// then the page, the panels and what a key needs.
-func helpText(leader []Key) string {
-	card := "  " + strings.ReplaceAll(cardText(leader), "\n", "\n  ")
-	return helpKeys + "\n\nTHE LEADER CARD (Space in Normal mode, Ctrl+Space in every mode)\n" + card + "\n\n" + helpRest
-}
+// helpText is Help › Keys: the Window's keys, each card as it lists its keys (keys.go), then the
+// page, the panels and what a key needs.
+func helpText(k keyset) string { return helpKeys + "\n\n" + k.helpCards() + "\n\n" + helpRest }
 
 const helpKeys = `KEYS
   Space       the leader card, in Normal mode: a key runs its command (its list is the card);
