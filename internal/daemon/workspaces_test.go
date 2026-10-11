@@ -157,14 +157,7 @@ func TestWorkspaceSectionSizeReindexesOnlyTheNamedWorkspace(t *testing.T) {
 			t.Errorf("%s section size = %d, %v; want %d", w.Name, size, err, want)
 		}
 		for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-			var version string
-			err := db.Read(context.Background(), func(tx *store.Tx) error {
-				d, err := db.Workspace(w.ID).Documents(tx).With(store.DocPath, "n.md").Get(store.DocIndexer)
-				if err == nil {
-					version = d.Indexer
-				}
-				return err
-			})
+			version, _, err := index.NewStore(db, w.ID).Identity(context.Background(), "n.md")
 			if id, perr := index.ParseIdentity(version); err == nil && perr == nil && id.Tokens == want {
 				break
 			}

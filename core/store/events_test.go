@@ -124,42 +124,12 @@ func TestWorkspaceSettingsRefuseAnUnknownWorkspace(t *testing.T) {
 	if err := s.SetWorkspacePatterns(ctx, nope, []string{"*.md"}, nil); !errors.Is(err, ErrNoWorkspace) {
 		t.Errorf("SetWorkspacePatterns: %v", err)
 	}
-	w, err := s.AddWorkspace(ctx, "blank", "/blank", []string{}, nil)
+	_, err := s.AddWorkspace(ctx, "blank", "/blank", []string{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ws, _ := s.Workspaces(ctx)
 	if len(ws) != 1 || ws[0].Include == nil || len(ws[0].Include) != 0 {
 		t.Fatalf("an explicit blank include was not kept: %+v", ws)
-	}
-	sc := s.Workspace(w.ID)
-	err = s.Write(ctx, func(tx *Tx) error {
-		doc, err := sc.Documents(tx).Set(DocPath, "n.md").Set(DocVersion, "v").Set(DocActiveGen, int64(1)).
-			Set(DocIndexer, "i").Set(DocIndexedAt, int64(0)).Insert()
-		if err != nil {
-			return err
-		}
-		if err := sc.FacetBatch(tx).Add(map[FacetField]any{FacetDoc: doc, FacetName: "status", FacetValue: "active"}).Flush(); err != nil {
-			return err
-		}
-		return sc.DiagnosticBatch(tx).Add(map[DiagnosticField]any{DiagDoc: doc, DiagOrd: int64(0), DiagField: "type",
-			DiagLine: int64(2), DiagRule: "enum", DiagMessage: "m"}).Flush()
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = s.Read(ctx, func(tx *Tx) error {
-		fs, err := sc.Facets(tx).Select()
-		if err != nil || len(fs) != 1 || fs[0].WorkspaceID != w.ID || fs[0].Field != "status" || fs[0].Value != "active" || fs[0].DocID == 0 {
-			t.Errorf("facet row = %+v, %v", fs, err)
-		}
-		ds, err := sc.Diagnostics(tx).Select()
-		if err != nil || len(ds) != 1 || ds[0].WorkspaceID != w.ID || ds[0].Line != 2 || ds[0].Rule != "enum" || ds[0].Message != "m" || ds[0].Ord != 0 {
-			t.Errorf("diagnostic row = %+v, %v", ds, err)
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 }

@@ -24,7 +24,7 @@ func (x *Indexer) ResolveLink(ctx context.Context, from, raw string) (path, reas
 			reason = why
 			return err
 		}
-		d, err := x.store.sc.Documents(tx).With(store.DocID, dst).Get(store.DocPath)
+		d, err := x.store.documents(tx).With(DocID, dst).Get(DocPath)
 		if err != nil {
 			return err
 		}

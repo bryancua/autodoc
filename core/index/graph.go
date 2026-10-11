@@ -46,7 +46,7 @@ type Unresolved struct {
 
 // kindsIn narrows a link query to links of the given kinds; nil leaves it every kind. The filter is
 // in the query, so a walk never passes through a link of a kind it was not given.
-func kindsIn(q dao.DAO[*store.Link, store.LinkField, int64], kinds []string) dao.DAO[*store.Link, store.LinkField, int64] {
+func kindsIn(q dao.DAO[*LinkRow, LinkField, int64], kinds []string) dao.DAO[*LinkRow, LinkField, int64] {
 	if kinds == nil {
 		return q
 	}
@@ -66,8 +66,8 @@ func (s *Store) Links(ctx context.Context, path string, kinds []string) ([]Link,
 		if err != nil {
 			return err
 		}
-		rows, err := kindsIn(s.sc.LinksOut(tx), kinds).With(store.LinkSrc, id).OrderBy(dao.Asc(store.LinkByID)).
-			Select(store.LinkOtherPath, store.LinkRaw, store.LinkAnchor, store.LinkKind, store.LinkDst)
+		rows, err := kindsIn(s.linksOut(tx), kinds).With(LinkSrc, id).OrderBy(dao.Asc(LinkByID)).
+			Select(LinkOtherPath, LinkRaw, LinkAnchor, LinkKind, LinkDst)
 		for _, r := range rows {
 			out = append(out, Link{Path: r.OtherPath, Raw: r.Raw, Anchor: deref(r.Anchor), Kind: r.Kind, Resolved: r.DstDoc != nil})
 		}
@@ -85,8 +85,8 @@ func (s *Store) Backlinks(ctx context.Context, path string, kinds []string) ([]L
 		if err != nil {
 			return err
 		}
-		rows, err := kindsIn(s.sc.LinksIn(tx), kinds).With(store.LinkDst, id).OrderBy(dao.Asc(store.LinkByOtherPath)).
-			Select(store.LinkOtherPath, store.LinkRaw, store.LinkAnchor, store.LinkKind)
+		rows, err := kindsIn(s.linksIn(tx), kinds).With(LinkDst, id).OrderBy(dao.Asc(LinkByOtherPath)).
+			Select(LinkOtherPath, LinkRaw, LinkAnchor, LinkKind)
 		for _, r := range rows {
 			out = append(out, Link{Path: r.OtherPath, Raw: r.Raw, Anchor: deref(r.Anchor), Kind: r.Kind, Resolved: true})
 		}
@@ -107,8 +107,8 @@ func (s *Store) Neighborhood(ctx context.Context, path string, depth int, kinds 
 		if err != nil {
 			return err
 		}
-		rows, err := kindsIn(s.sc.LinksOut(tx), kinds).WithPredicate(dao.IsNotNull(`"link"."dst_doc"`)).
-			Select(store.LinkSrc, store.LinkDst, store.LinkKind)
+		rows, err := kindsIn(s.linksOut(tx), kinds).WithPredicate(dao.IsNotNull(`"link"."dst_doc"`)).
+			Select(LinkSrc, LinkDst, LinkKind)
 		if err != nil {
 			return err
 		}
@@ -122,7 +122,7 @@ func (s *Store) Neighborhood(ctx context.Context, path string, depth int, kinds 
 		for id := range sub.Nodes() {
 			ids = append(ids, id)
 		}
-		docs, err := s.sc.Documents(tx).With(store.DocID, ids...).Select(store.DocID, store.DocPath)
+		docs, err := s.documents(tx).With(DocID, ids...).Select(DocID, DocPath)
 		if err != nil {
 			return err
 		}
@@ -159,8 +159,8 @@ func (s *Store) Neighborhood(ctx context.Context, path string, depth int, kinds 
 func (s *Store) Unresolved(ctx context.Context, kinds []string) ([]Unresolved, error) {
 	out := []Unresolved{}
 	err := s.read(ctx, func(tx *store.Tx) error {
-		rows, err := kindsIn(s.sc.LinksIn(tx), kinds).WithPredicate(dao.IsNull(`"link"."dst_doc"`)).OrderBy(dao.Asc(store.LinkByOtherPath)).
-			Select(store.LinkID, store.LinkOtherPath, store.LinkRaw, store.LinkKind, store.LinkName)
+		rows, err := kindsIn(s.linksIn(tx), kinds).WithPredicate(dao.IsNull(`"link"."dst_doc"`)).OrderBy(dao.Asc(LinkByOtherPath)).
+			Select(LinkID, LinkOtherPath, LinkRaw, LinkKind, LinkName)
 		if err != nil {
 			return err
 		}
@@ -188,9 +188,9 @@ func (s *Store) Unresolved(ctx context.Context, kinds []string) ([]Unresolved, e
 // it replaces. Listed by source path, then source order, with ReasonCycle: of the given kinds only
 // (nil: both), though a loop is found through either.
 func (s *Store) supersessionLoops(tx *store.Tx, kinds []string) ([]Unresolved, error) {
-	rows, err := kindsIn(s.sc.LinksIn(tx), []string{kindSupersedes, kindSupersededBy}).
-		WithPredicate(dao.IsNotNull(`"link"."dst_doc"`)).OrderBy(dao.Asc(store.LinkByOtherPath), dao.Asc(store.LinkByID)).
-		Select(store.LinkSrc, store.LinkDst, store.LinkKind, store.LinkRaw, store.LinkOtherPath)
+	rows, err := kindsIn(s.linksIn(tx), []string{kindSupersedes, kindSupersededBy}).
+		WithPredicate(dao.IsNotNull(`"link"."dst_doc"`)).OrderBy(dao.Asc(LinkByOtherPath), dao.Asc(LinkByID)).
+		Select(LinkSrc, LinkDst, LinkKind, LinkRaw, LinkOtherPath)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +219,7 @@ func (s *Store) supersessionLoops(tx *store.Tx, kinds []string) ([]Unresolved, e
 }
 
 func (s *Store) docID(tx *store.Tx, path string) (int64, error) {
-	d, err := s.sc.Documents(tx).With(store.DocPath, path).Get(store.DocID)
+	d, err := s.documents(tx).With(DocPath, path).Get(DocID)
 	if errors.Is(err, dao.ErrNoRows) {
 		return 0, ErrNoDocument
 	}

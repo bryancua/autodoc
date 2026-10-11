@@ -92,10 +92,10 @@ func (s *Store) Documents(ctx context.Context, o DocumentsOpts) ([]DocumentEntry
 	var all []listed
 	tags := map[int64]map[string]bool{}
 	facets := map[int64]map[string]map[string]bool{}
-	diags := map[int64][]store.Diagnostic{}
+	diags := map[int64][]Diagnostic{}
 	err := s.read(ctx, func(tx *store.Tx) error {
-		docs, err := s.sc.Documents(tx).Select(store.DocID, store.DocPath, store.DocActiveGen, store.DocTitle,
-			store.DocFrontmatterJSON, store.DocIndexedAt)
+		docs, err := s.documents(tx).Select(DocID, DocPath, DocActiveGen, DocTitle,
+			DocFrontmatterJSON, DocIndexedAt)
 		if err != nil {
 			return err
 		}
@@ -110,7 +110,7 @@ func (s *Store) Documents(ctx context.Context, o DocumentsOpts) ([]DocumentEntry
 			all = append(all, l)
 		}
 		if len(o.Tags) > 0 {
-			rows, err := s.sc.Tags(tx).Select(store.DocValueDoc, store.DocValueValue)
+			rows, err := s.tags(tx).Select(DocValueDoc, DocValueValue)
 			if err != nil {
 				return err
 			}
@@ -122,8 +122,8 @@ func (s *Store) Documents(ctx context.Context, o DocumentsOpts) ([]DocumentEntry
 			}
 		}
 		if o.Diagnosed {
-			rows, err := s.sc.Diagnostics(tx).Select(store.DiagDoc, store.DiagOrd, store.DiagField, store.DiagLine,
-				store.DiagRule, store.DiagMessage)
+			rows, err := s.diagnostics(tx).Select(DiagDoc, DiagOrd, DiagField, DiagLine,
+				DiagRule, DiagMessage)
 			if err != nil {
 				return err
 			}
@@ -132,7 +132,7 @@ func (s *Store) Documents(ctx context.Context, o DocumentsOpts) ([]DocumentEntry
 			}
 		}
 		if len(o.Facets) > 0 {
-			rows, err := s.sc.Facets(tx).Select(store.FacetDoc, store.FacetName, store.FacetValue)
+			rows, err := s.facets(tx).Select(FacetDoc, FacetName, FacetValue)
 			if err != nil {
 				return err
 			}

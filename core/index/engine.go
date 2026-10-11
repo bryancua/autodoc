@@ -68,7 +68,7 @@ func sectionsOnly(ctx context.Context) bool {
 	return on
 }
 
-func candidateOf(r *store.Chunk, snippet string) search.Candidate[int64] {
+func candidateOf(r *Chunk, snippet string) search.Candidate[int64] {
 	return search.Candidate[int64]{Doc: r.DocID, Ord: int(r.Ord), Path: r.DocPath, Breadcrumb: r.Breadcrumb, Snippet: snippet,
 		Generation: r.DocActiveGen, ByteStart: int(r.ByteStart), ByteEnd: int(r.ByteEnd)}
 }
@@ -77,14 +77,14 @@ func candidateOf(r *store.Chunk, snippet string) search.Candidate[int64] {
 // title 10, breadcrumb 5, tags 5, body 1), at most n. The workspace and the filters are in the same
 // WHERE as the MATCH, so they apply before the rank and the limit.
 func (v *View) Lexical(ctx context.Context, terms []search.Term, f search.Filter, n int) ([]search.Candidate[int64], error) {
-	d, ok, err := v.s.filtered(v.tx, alive(v.s.sc.Chunks(v.tx)), optsOf(ctx, f))
+	d, ok, err := v.s.filtered(v.tx, alive(v.s.chunks(v.tx)), optsOf(ctx, f))
 	if err != nil || !ok {
 		return nil, err
 	}
-	rows, err := d.Join(store.JoinFTS).WithPredicate(dao.Match(store.ChunkFTS, query.FTS5(terms))).
-		OrderBy(dao.Asc(store.ChunkByRank), dao.Asc(store.ChunkByPath)).Limit(uint64(n)).
-		Select(store.ChunkDoc, store.ChunkOrd, store.ChunkDocPath, store.ChunkBreadcrumb, store.ChunkByteStart,
-			store.ChunkByteEnd, store.ChunkDocActiveGen, store.ChunkSnippet)
+	rows, err := d.Join(JoinFTS).WithPredicate(dao.Match(ChunkFTS, query.FTS5(terms))).
+		OrderBy(dao.Asc(ChunkByRank), dao.Asc(ChunkByPath)).Limit(uint64(n)).
+		Select(ChunkDoc, ChunkOrd, ChunkDocPath, ChunkBreadcrumb, ChunkByteStart,
+			ChunkByteEnd, ChunkDocActiveGen, ChunkSnippet)
 	if err != nil {
 		return nil, fmt.Errorf("index: lexical search: %w", err)
 	}
@@ -120,7 +120,7 @@ func (v *View) SemanticState(ctx context.Context) (search.State, error) {
 			return search.StateSwitching, nil
 		}
 	}
-	unready, err := v.s.sc.Documents(v.tx).With(store.DocSemanticReady, int64(0)).Exists()
+	unready, err := v.s.documents(v.tx).With(DocSemanticReady, int64(0)).Exists()
 	if err != nil {
 		return "", err
 	}
@@ -140,8 +140,8 @@ func (v *View) Signals(ctx context.Context, docs []int64) (map[int64]search.Sign
 		body[i] = k
 	}
 	for _, id := range docs {
-		inLinks, err := dao.CountDistinct(v.s.sc.LinksOut(v.tx).With(store.LinkDst, id).Excluding(store.LinkSrc, id).
-			WithPredicate(dao.In(`"link"."kind"`, body)), store.LinkSrc)
+		inLinks, err := dao.CountDistinct(v.s.linksOut(v.tx).With(LinkDst, id).Excluding(LinkSrc, id).
+			WithPredicate(dao.In(`"link"."kind"`, body)), LinkSrc)
 		if err != nil {
 			return nil, err
 		}
@@ -157,13 +157,13 @@ func (v *View) Signals(ctx context.Context, docs []int64) (map[int64]search.Sign
 // List answers a query of filters and no words: the documents they admit, in path order, each as
 // its first section.
 func (v *View) List(ctx context.Context, f search.Filter, n int) ([]search.Candidate[int64], error) {
-	d, ok, err := v.s.filtered(v.tx, alive(v.s.sc.Chunks(v.tx)).With(store.ChunkOrd, int64(0)), optsOf(ctx, f))
+	d, ok, err := v.s.filtered(v.tx, alive(v.s.chunks(v.tx)).With(ChunkOrd, int64(0)), optsOf(ctx, f))
 	if err != nil || !ok {
 		return nil, err
 	}
-	rows, err := d.OrderBy(dao.Asc(store.ChunkByPath)).Limit(uint64(n)).
-		Select(store.ChunkDoc, store.ChunkOrd, store.ChunkDocPath, store.ChunkBreadcrumb, store.ChunkBody, store.ChunkByteStart,
-			store.ChunkByteEnd, store.ChunkDocActiveGen)
+	rows, err := d.OrderBy(dao.Asc(ChunkByPath)).Limit(uint64(n)).
+		Select(ChunkDoc, ChunkOrd, ChunkDocPath, ChunkBreadcrumb, ChunkBody, ChunkByteStart,
+			ChunkByteEnd, ChunkDocActiveGen)
 	if err != nil {
 		return nil, fmt.Errorf("index: facet search: %w", err)
 	}

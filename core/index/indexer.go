@@ -412,7 +412,7 @@ func (x *Indexer) Run(ctx context.Context) error {
 func (x *Indexer) loadJobs(ctx context.Context) error {
 	s := x.store
 	return s.read(ctx, func(tx *store.Tx) error {
-		jobs, err := s.sc.Jobs(tx).Select(store.JobPath, store.JobSeq, store.JobReason, store.JobAttempts)
+		jobs, err := s.jobs(tx).Select(JobPath, JobSeq, JobReason, JobAttempts)
 		if err != nil {
 			return fmt.Errorf("index: loading pending jobs: %w", err)
 		}
@@ -767,13 +767,30 @@ func cutDerived(_ *Indexer, p *prepared, s source) error {
 func (s *Store) indexer(ctx context.Context, path string) string {
 	var v string
 	_ = s.read(ctx, func(tx *store.Tx) error {
-		d, err := s.sc.Documents(tx).With(store.DocPath, path).Get(store.DocIndexer)
+		d, err := s.documents(tx).With(DocPath, path).Get(DocIndexer)
 		if err == nil {
 			v = d.Indexer
 		}
 		return nil
 	})
 	return v
+}
+
+// Identity is the identity path was indexed under (ParseIdentity reads it), and whether it is
+// indexed.
+func (s *Store) Identity(ctx context.Context, path string) (string, bool, error) {
+	var v string
+	err := s.read(ctx, func(tx *store.Tx) error {
+		d, err := s.documents(tx).With(DocPath, path).Get(DocIndexer)
+		if err == nil {
+			v = d.Indexer
+		}
+		return err
+	})
+	if errors.Is(err, dao.ErrNoRows) {
+		return "", false, nil
+	}
+	return v, err == nil, err
 }
 
 // commit writes one batch in one transaction: the jobs touched since the last one, and the results
@@ -803,9 +820,9 @@ func (x *Indexer) commit(ctx context.Context, batch []*prepared) error {
 				reason = "reindex"
 			}
 			// a touch of a queued path moves its seq and reason, and keeps when it was enqueued
-			row := s.sc.Jobs(tx).Set(store.JobPath, p).Set(store.JobSeq, j.seq).Set(store.JobReason, reason).
-				Set(store.JobEnqueuedAt, now.Unix()).Set(store.JobAttempts, int64(0))
-			if err := dao.UpsertOnly(row, store.JobSeq, store.JobReason); err != nil {
+			row := s.jobs(tx).Set(JobPath, p).Set(JobSeq, j.seq).Set(JobReason, reason).
+				Set(JobEnqueuedAt, now.Unix()).Set(JobAttempts, int64(0))
+			if err := dao.UpsertOnly(row, JobSeq, JobReason); err != nil {
 				return err
 			}
 		}
@@ -821,7 +838,7 @@ func (x *Indexer) commit(ctx context.Context, batch []*prepared) error {
 				if p.refused {
 					// an unchanged file re-derived for a new identity alone still has a correct row:
 					// only a file no longer the one indexed loses it
-					d, err := s.sc.Documents(tx).With(store.DocPath, p.path).Get(store.DocVersion)
+					d, err := s.documents(tx).With(DocPath, p.path).Get(DocVersion)
 					if err != nil && !errors.Is(err, dao.ErrNoRows) {
 						return err
 					}
@@ -834,8 +851,8 @@ func (x *Indexer) commit(ctx context.Context, batch []*prepared) error {
 					}
 					changed = append(changed, id)
 				}
-				if err := s.sc.Jobs(tx).With(store.JobPath, p.path).Set(store.JobAttempts, dao.Incr(1)).
-					Set(store.JobLastError, p.err.Error()).Update(); err != nil {
+				if err := s.jobs(tx).With(JobPath, p.path).Set(JobAttempts, dao.Incr(1)).
+					Set(JobLastError, p.err.Error()).Update(); err != nil {
 					return err
 				}
 				outcomes = append(outcomes, outcome{p: p})
@@ -855,7 +872,7 @@ func (x *Indexer) commit(ctx context.Context, batch []*prepared) error {
 				}
 				changed = append(changed, id)
 			}
-			if err := s.sc.Jobs(tx).With(store.JobPath, p.path).With(store.JobSeq, p.claimedSeq).Delete(); err != nil {
+			if err := s.jobs(tx).With(JobPath, p.path).With(JobSeq, p.claimedSeq).Delete(); err != nil {
 				return err
 			}
 			outcomes = append(outcomes, outcome{p: p, done: true})
@@ -983,12 +1000,12 @@ type oldChunk struct {
 func (s *Store) upsertDoc(tx *store.Tx, p *prepared, now time.Time) (int64, error) {
 	var docID, gen int64
 	var oldTitle string
-	d, err := s.sc.Documents(tx).With(store.DocPath, p.path).Get(store.DocID, store.DocActiveGen, store.DocTitle)
+	d, err := s.documents(tx).With(DocPath, p.path).Get(DocID, DocActiveGen, DocTitle)
 	appeared := errors.Is(err, dao.ErrNoRows)
 	switch {
 	case appeared:
-		if docID, err = s.sc.Documents(tx).Set(store.DocPath, p.path).Set(store.DocVersion, "").Set(store.DocActiveGen, int64(0)).
-			Set(store.DocIndexer, p.indexer).Set(store.DocIndexedAt, now.Unix()).Insert(); err != nil {
+		if docID, err = s.documents(tx).Set(DocPath, p.path).Set(DocVersion, "").Set(DocActiveGen, int64(0)).
+			Set(DocIndexer, p.indexer).Set(DocIndexedAt, now.Unix()).Insert(); err != nil {
 			return 0, err
 		}
 	case err != nil:
@@ -1010,24 +1027,24 @@ func (s *Store) upsertDoc(tx *store.Tx, p *prepared, now time.Time) (int64, erro
 	var reused []int64
 	// the new chunks go in as one statement: the full-text trigger makes each insert a statement of
 	// its own savepoint, and FTS5 writes what it holds to disk at every savepoint
-	fresh := s.sc.ChunkBatch(tx)
+	fresh := s.chunkBatch(tx)
 	added := false
 	for _, c := range p.chunks {
 		key := string(c.hash)
 		if occ := old[key]; len(occ) > 0 {
 			id := occ[0]
 			old[key] = occ[1:]
-			if err := s.sc.Chunks(tx).With(store.ChunkID, id).Set(store.ChunkOrd, int64(c.Ord)).
-				Set(store.ChunkByteStart, int64(c.ByteStart)).Set(store.ChunkByteEnd, int64(c.ByteEnd)).Update(); err != nil {
+			if err := s.chunks(tx).With(ChunkID, id).Set(ChunkOrd, int64(c.Ord)).
+				Set(ChunkByteStart, int64(c.ByteStart)).Set(ChunkByteEnd, int64(c.ByteEnd)).Update(); err != nil {
 				return 0, err
 			}
 			reused = append(reused, id)
 			continue
 		}
-		fresh.Add(map[store.ChunkField]any{store.ChunkDoc: docID, store.ChunkHash: c.hash, store.ChunkTextHash: c.textHash,
-			store.ChunkGenFrom: next, store.ChunkOrd: int64(c.Ord), store.ChunkBreadcrumb: c.Breadcrumb,
-			store.ChunkBody: c.Body, store.ChunkEmbed: c.Embed, store.ChunkTitle: title, store.ChunkTags: tags,
-			store.ChunkByteStart: int64(c.ByteStart), store.ChunkByteEnd: int64(c.ByteEnd), store.ChunkKind: c.kindOr()})
+		fresh.Add(map[ChunkField]any{ChunkDoc: docID, ChunkHash: c.hash, ChunkTextHash: c.textHash,
+			ChunkGenFrom: next, ChunkOrd: int64(c.Ord), ChunkBreadcrumb: c.Breadcrumb,
+			ChunkBody: c.Body, ChunkEmbed: c.Embed, ChunkTitle: title, ChunkTags: tags,
+			ChunkByteStart: int64(c.ByteStart), ChunkByteEnd: int64(c.ByteEnd), ChunkKind: c.kindOr()})
 		added = true
 	}
 	if added {
@@ -1041,7 +1058,7 @@ func (s *Store) upsertDoc(tx *store.Tx, p *prepared, now time.Time) (int64, erro
 	}
 	// dead from the new generation on; their full-text entries go with their rows, at GC
 	for part := range inParts(dead) {
-		if err := s.sc.Chunks(tx).With(store.ChunkID, part...).Set(store.ChunkGenTo, next).Update(); err != nil {
+		if err := s.chunks(tx).With(ChunkID, part...).Set(ChunkGenTo, next).Update(); err != nil {
 			return 0, err
 		}
 	}
@@ -1049,15 +1066,15 @@ func (s *Store) upsertDoc(tx *store.Tx, p *prepared, now time.Time) (int64, erro
 		// the document's title and tags are on every chunk (FTS5 reads the columns it names): the
 		// update trigger replaces each reused chunk's full-text entry, old values out, new in
 		for part := range inParts(reused) {
-			if err := s.sc.Chunks(tx).With(store.ChunkID, part...).Set(store.ChunkTitle, title).Set(store.ChunkTags, tags).Update(); err != nil {
+			if err := s.chunks(tx).With(ChunkID, part...).Set(ChunkTitle, title).Set(ChunkTags, tags).Update(); err != nil {
 				return 0, err
 			}
 		}
 	}
-	if err := s.replaceValues(tx, s.sc.Tags(tx), s.sc.TagBatch(tx), docID, p.meta.Tags); err != nil {
+	if err := s.replaceValues(tx, s.tags(tx), s.tagBatch(tx), docID, p.meta.Tags); err != nil {
 		return 0, err
 	}
-	if err := s.replaceValues(tx, s.sc.Aliases(tx), s.sc.AliasBatch(tx), docID, p.meta.Aliases); err != nil {
+	if err := s.replaceValues(tx, s.aliases(tx), s.aliasBatch(tx), docID, p.meta.Aliases); err != nil {
 		return 0, err
 	}
 	if err := s.replaceFrontmatter(tx, docID, p.frontmatter); err != nil {
@@ -1089,9 +1106,9 @@ func (s *Store) upsertDoc(tx *store.Tx, p *prepared, now time.Time) (int64, erro
 	if p.meta.FrontmatterErr != "" {
 		fmErr = p.meta.FrontmatterErr
 	}
-	if err := s.sc.Documents(tx).With(store.DocID, docID).Set(store.DocVersion, string(p.version)).Set(store.DocActiveGen, next).
-		Set(store.DocTitle, title).Set(store.DocFrontmatterJSON, fmJSON).Set(store.DocFrontmatterError, fmErr).
-		Set(store.DocIndexer, p.indexer).Set(store.DocIndexedAt, now.Unix()).Update(); err != nil {
+	if err := s.documents(tx).With(DocID, docID).Set(DocVersion, string(p.version)).Set(DocActiveGen, next).
+		Set(DocTitle, title).Set(DocFrontmatterJSON, fmJSON).Set(DocFrontmatterError, fmErr).
+		Set(DocIndexer, p.indexer).Set(DocIndexedAt, now.Unix()).Update(); err != nil {
 		return 0, err
 	}
 	if err := s.logChange(tx, p.path, "upsert", next, now.Unix()); err != nil {
@@ -1105,7 +1122,7 @@ func (s *Store) upsertDoc(tx *store.Tx, p *prepared, now time.Time) (int64, erro
 // with it by the schema's cascade, and its chunks' full-text entries by the delete trigger; the
 // vectors of the texts no other chunk has go too.
 func (s *Store) deleteDoc(tx *store.Tx, path string, now time.Time) (int64, error) {
-	d, err := s.sc.Documents(tx).With(store.DocPath, path).Get(store.DocID, store.DocActiveGen)
+	d, err := s.documents(tx).With(DocPath, path).Get(DocID, DocActiveGen)
 	if errors.Is(err, dao.ErrNoRows) {
 		return 0, nil
 	}
@@ -1116,11 +1133,11 @@ func (s *Store) deleteDoc(tx *store.Tx, path string, now time.Time) (int64, erro
 	if err != nil {
 		return 0, err
 	}
-	chunks, err := s.sc.Chunks(tx).With(store.ChunkDoc, d.ID).Select(store.ChunkTextHash)
+	chunks, err := s.chunks(tx).With(ChunkDoc, d.ID).Select(ChunkTextHash)
 	if err != nil {
 		return 0, err
 	}
-	if err := s.sc.Documents(tx).With(store.DocID, d.ID).Delete(); err != nil {
+	if err := s.documents(tx).With(DocID, d.ID).Delete(); err != nil {
 		return 0, err
 	}
 	// its texts' vectors go with the last chunk that has them (ADR 1791329335)
@@ -1146,9 +1163,9 @@ func (s *Store) deleteDoc(tx *store.Tx, path string, now time.Time) (int64, erro
 // aliveChunks maps the hashes of a document's chunks alive at gen to their ids, in ord order
 // (identical chunks repeat, so a hash may have several).
 func (s *Store) aliveChunks(tx *store.Tx, docID, gen int64) (map[string][]int64, error) {
-	rows, err := s.sc.Chunks(tx).With(store.ChunkDoc, docID).WithPredicate(dao.Lte(`"chunk"."gen_from"`, gen)).
+	rows, err := s.chunks(tx).With(ChunkDoc, docID).WithPredicate(dao.Lte(`"chunk"."gen_from"`, gen)).
 		WithPredicate(dao.Or(dao.IsNull(`"chunk"."gen_to"`), dao.Gt(`"chunk"."gen_to"`, gen))).
-		OrderBy(dao.Asc(store.ChunkByOrd)).Select(store.ChunkID, store.ChunkHash)
+		OrderBy(dao.Asc(ChunkByOrd)).Select(ChunkID, ChunkHash)
 	if err != nil {
 		return nil, err
 	}
@@ -1160,9 +1177,9 @@ func (s *Store) aliveChunks(tx *store.Tx, docID, gen int64) (map[string][]int64,
 }
 
 // replaceValues replaces a document's tags or aliases (set, through its batch) with values.
-func (s *Store) replaceValues(tx *store.Tx, set dao.DAO[*store.DocValue, store.DocValueField, int64],
-	b store.Batch[*store.DocValue, store.DocValueField], docID int64, values []string) error {
-	if err := set.With(store.DocValueDoc, docID).Delete(); err != nil {
+func (s *Store) replaceValues(tx *store.Tx, set dao.DAO[*DocValue, DocValueField, int64],
+	b store.Batch[*DocValue, DocValueField], docID int64, values []string) error {
+	if err := set.With(DocValueDoc, docID).Delete(); err != nil {
 		return err
 	}
 	if len(values) == 0 {
@@ -1170,7 +1187,7 @@ func (s *Store) replaceValues(tx *store.Tx, set dao.DAO[*store.DocValue, store.D
 	}
 	b = b.SkipConflicts()
 	for _, v := range values {
-		b.Add(map[store.DocValueField]any{store.DocValueDoc: docID, store.DocValueValue: v})
+		b.Add(map[DocValueField]any{DocValueDoc: docID, DocValueValue: v})
 	}
 	return b.Flush()
 }
@@ -1185,9 +1202,9 @@ func (x *Indexer) gc(ctx context.Context) (bool, error) {
 	var texts [][]byte
 	more := false
 	err := s.db.Write(ctx, func(tx *store.Tx) error {
-		rows, err := s.sc.Chunks(tx).Join(store.JoinDocument).WithPredicate(dao.IsNotNull(`"chunk"."gen_to"`)).
+		rows, err := s.chunks(tx).Join(JoinDocument).WithPredicate(dao.IsNotNull(`"chunk"."gen_to"`)).
 			WithPredicate(dao.Cmp(dao.T("chunk", "gen_to"), dao.OpLte, dao.T("document", "active_gen"))).
-			Limit(1001).Select(store.ChunkID, store.ChunkTextHash)
+			Limit(1001).Select(ChunkID, ChunkTextHash)
 		if err != nil {
 			return err
 		}
@@ -1199,7 +1216,7 @@ func (x *Indexer) gc(ctx context.Context) (bool, error) {
 			texts = append(texts, r.TextHash)
 		}
 		for part := range inParts(dead) {
-			if err := s.sc.Chunks(tx).With(store.ChunkID, part...).Delete(); err != nil {
+			if err := s.chunks(tx).With(ChunkID, part...).Delete(); err != nil {
 				return err
 			}
 		}
@@ -1233,7 +1250,7 @@ func (s *Store) pruneChanges(tx *store.Tx, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	return s.sc.Changes(tx).WithPredicate(dao.Lt(`"change"."at"`, now.Add(-retainAge).Unix())).
+	return s.changes(tx).WithPredicate(dao.Lt(`"change"."at"`, now.Add(-retainAge).Unix())).
 		WithPredicate(dao.Lte(`"change"."seq"`, h-retainRows)).Delete()
 }
 

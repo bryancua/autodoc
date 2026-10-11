@@ -61,25 +61,31 @@ func seedVectors(t *testing.T, db *store.Store, ws int64, fp string, n, active i
 	}
 }
 
-// modelsOf lists workspace ws's models as "fp:vectors".
+// modelsOf lists workspace ws's models, each with how many vectors it holds, read from the store's
+// file on a connection of the test's own: the vectors are the index's tables.
 func modelsOf(t *testing.T, db *store.Store, ws int64) map[string]int {
 	t.Helper()
-	out := map[string]int{}
-	err := db.Read(context.Background(), func(tx *store.Tx) error {
-		ms, err := db.Workspace(ws).Models(tx).Select(store.ModelFP)
-		if err != nil {
-			return err
-		}
-		for _, m := range ms {
-			es, err := db.Workspace(ws).Embeddings(tx).With(store.EmbModel, m.FP).Select(store.EmbTextHash)
-			if err != nil {
-				return err
-			}
-			out[m.FP] = len(es)
-		}
-		return nil
-	})
+	raw, err := sqlite.Open(context.Background(), "file:"+db.Path()+"?_pragma=busy_timeout(5000)")
 	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	rows, err := raw.QueryContext(context.Background(), `SELECT m.fp, (SELECT COUNT(*) FROM embedding e
+		WHERE e.workspace_id = m.workspace_id AND e.model_fp = m.fp) FROM model m WHERE m.workspace_id = ?`, ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var fp string
+		var n int
+		if err := rows.Scan(&fp, &n); err != nil {
+			t.Fatal(err)
+		}
+		out[fp] = n
+	}
+	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
 	return out

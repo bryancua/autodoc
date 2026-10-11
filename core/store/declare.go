@@ -86,3 +86,16 @@ func Col[R any, T ~string](table string, c T, scan func(R) any) dao.Field[R] {
 func Joined[R any, T ~string](table string, c T, join dao.JoinKey, scan func(R) any) dao.Field[R] {
 	return joined(table, c, join, scan)
 }
+
+// WorkspaceColumn is the column every workspace's table keys on first.
+const WorkspaceColumn = wsCol
+
+// InnerJoin joins table to from on the workspace, then table's col equal to from's key: a join
+// between two workspace-owned tables is on both. LeftJoin keeps a from row that joins none.
+func InnerJoin(table, col, from, key string) dao.Expr { return innerJoin(table, col, from, key) }
+
+func LeftJoin(table, col, from, key string) dao.Expr { return leftJoin(table, col, from, key) }
+
+// NoText is the empty string as a column expression: what a COALESCE over a join that found no
+// row falls back to.
+var NoText = dao.SQL("''")

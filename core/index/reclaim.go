@@ -71,7 +71,7 @@ func (s *Store) reclaim(ctx context.Context, fp string, write writeFn) (Reclaime
 				done = true // in use again: what is left stays
 				return nil
 			}
-			keys, err := s.sc.Embeddings(tx).With(store.EmbModel, fp).Limit(reclaimBatch).Select(store.EmbTextHash)
+			keys, err := s.embeddings(tx).With(EmbModel, fp).Limit(reclaimBatch).Select(EmbTextHash)
 			if err != nil {
 				return err
 			}
@@ -84,7 +84,7 @@ func (s *Store) reclaim(ctx context.Context, fp string, write writeFn) (Reclaime
 				hashes[i] = k.TextHash
 			}
 			n = len(keys)
-			return s.sc.Embeddings(tx).With(store.EmbModel, fp).With(store.EmbTextHash, hashes...).Delete()
+			return s.embeddings(tx).With(EmbModel, fp).With(EmbTextHash, hashes...).Delete()
 		})
 		if err != nil {
 			return out, fmt.Errorf("index: reclaiming %s: %w", fp, err)

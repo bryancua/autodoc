@@ -29,13 +29,6 @@ var ErrUnknownMode = errs.Sentinel(errs.ErrInvalidArgument, "index: unknown sear
 // or the daemon is still setting one up after it started. It is an ErrUnsupported.
 var ErrNoProvider = errs.Sentinel(errs.ErrUnsupported, "index: semantic search: no embedding provider in use")
 
-// HighlightStart and HighlightEnd mark the matched terms in a Hit's Snippet: control characters,
-// which no file contains, so a client can render them as it likes.
-const (
-	HighlightStart = store.HighlightStart
-	HighlightEnd   = store.HighlightEnd
-)
-
 // The search's constants (ADR 0204 §4.4).
 const (
 	defaultLimit = 20
@@ -192,9 +185,9 @@ func (s *Store) embedQuery(ctx context.Context, sem *semantic, q string) (string
 // filtered narrows a chunk query (joined to its document) to the query's filters: every facet
 // field and every tag, and any of the paths. ok is false when no document has them all, so nothing
 // can match. Every retriever filters here, before its rank and its limit.
-func (s *Store) filtered(tx *store.Tx, d dao.DAO[*store.Chunk, store.ChunkField, int64], opts QueryOpts) (dao.DAO[*store.Chunk, store.ChunkField, int64], bool, error) {
+func (s *Store) filtered(tx *store.Tx, d dao.DAO[*Chunk, ChunkField, int64], opts QueryOpts) (dao.DAO[*Chunk, ChunkField, int64], bool, error) {
 	if opts.sectionsOnly {
-		d = d.With(store.ChunkKind, ChunkSection)
+		d = d.With(ChunkKind, ChunkSection)
 	}
 	var docs map[int64]bool
 	for field, values := range opts.Facets {
@@ -202,7 +195,7 @@ func (s *Store) filtered(tx *store.Tx, d dao.DAO[*store.Chunk, store.ChunkField,
 		for i, v := range values {
 			vals[i] = v
 		}
-		rows, err := s.sc.Facets(tx).With(store.FacetName, field).With(store.FacetValue, vals...).Select(store.FacetDoc)
+		rows, err := s.facets(tx).With(FacetName, field).With(FacetValue, vals...).Select(FacetDoc)
 		if err != nil {
 			return nil, false, err
 		}
@@ -219,7 +212,7 @@ func (s *Store) filtered(tx *store.Tx, d dao.DAO[*store.Chunk, store.ChunkField,
 	}
 	for _, t := range opts.Tags {
 		tag := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(t), "#"))
-		rows, err := s.sc.Tags(tx).With(store.DocValueValue, tag).Select(store.DocValueDoc)
+		rows, err := s.tags(tx).With(DocValueValue, tag).Select(DocValueDoc)
 		if err != nil {
 			return nil, false, err
 		}
@@ -239,7 +232,7 @@ func (s *Store) filtered(tx *store.Tx, d dao.DAO[*store.Chunk, store.ChunkField,
 		for id := range docs {
 			ids = append(ids, id)
 		}
-		d = d.With(store.ChunkDoc, ids...)
+		d = d.With(ChunkDoc, ids...)
 	}
 	if len(opts.Paths) > 0 {
 		var ors []dao.Predicate
@@ -259,7 +252,7 @@ func (s *Store) filtered(tx *store.Tx, d dao.DAO[*store.Chunk, store.ChunkField,
 }
 
 func (s *Store) tagsOf(tx *store.Tx, docID int64) ([]string, error) {
-	rows, err := s.sc.Tags(tx).With(store.DocValueDoc, docID).OrderBy(dao.Asc(store.ByKey)).Select(store.DocValueValue)
+	rows, err := s.tags(tx).With(DocValueDoc, docID).OrderBy(dao.Asc(byKey)).Select(DocValueValue)
 	if err != nil {
 		return nil, err
 	}

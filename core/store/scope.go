@@ -68,53 +68,15 @@ func (sc *Scope) Connections(tx *Tx) dao.DAO[*Connection, ConnectionField, int64
 	return scoped(sc, tx.t.connections, tx)
 }
 
+// Patterns are the workspace's include and exclude patterns.
 func (sc *Scope) Patterns(tx *Tx) dao.DAO[*Pattern, PatternField, int64] {
 	return scoped(sc, tx.t.patterns, tx)
 }
-func (sc *Scope) Documents(tx *Tx) dao.DAO[*Document, DocumentField, int64] {
-	return scoped(sc, tx.t.documents, tx)
-}
-func (sc *Scope) Chunks(tx *Tx) dao.DAO[*Chunk, ChunkField, int64] {
-	return scoped(sc, tx.t.chunks, tx)
-}
-func (sc *Scope) Tags(tx *Tx) dao.DAO[*DocValue, DocValueField, int64] {
-	return scoped(sc, tx.t.tags, tx)
-}
-func (sc *Scope) Aliases(tx *Tx) dao.DAO[*DocValue, DocValueField, int64] {
-	return scoped(sc, tx.t.aliases, tx)
-}
-func (sc *Scope) Names(tx *Tx) dao.DAO[*DocName, DocNameField, int64] {
-	return scoped(sc, tx.t.names, tx)
-}
 
-// LinkKeys is the names relation links are looked up under.
-func (sc *Scope) LinkKeys(tx *Tx) dao.DAO[*LinkKey, LinkKeyField, int64] {
-	return scoped(sc, tx.t.linkKeys, tx)
-}
-func (sc *Scope) Facets(tx *Tx) dao.DAO[*Facet, FacetField, int64] {
-	return scoped(sc, tx.t.facets, tx)
-}
-func (sc *Scope) Diagnostics(tx *Tx) dao.DAO[*Diagnostic, DiagnosticField, int64] {
-	return scoped(sc, tx.t.diagnostics, tx)
-}
-
-// LinksOut is the link table joined to each link's target; LinksIn to each
-// link's source. Both are the one link table.
-func (sc *Scope) LinksOut(tx *Tx) dao.DAO[*Link, LinkField, int64] {
-	return scoped(sc, tx.t.linksOut, tx)
-}
-func (sc *Scope) LinksIn(tx *Tx) dao.DAO[*Link, LinkField, int64] {
-	return scoped(sc, tx.t.linksIn, tx)
-}
+// Models are the embedding models the workspace used: the providers' (providers.go) as well as the
+// index's.
 func (sc *Scope) Models(tx *Tx) dao.DAO[*Model, ModelField, string] {
 	return scoped(sc, tx.t.models, tx)
-}
-func (sc *Scope) Embeddings(tx *Tx) dao.DAO[*Embedding, EmbeddingField, string] {
-	return scoped(sc, tx.t.embeddings, tx)
-}
-func (sc *Scope) Jobs(tx *Tx) dao.DAO[*Job, JobField, string] { return scoped(sc, tx.t.jobs, tx) }
-func (sc *Scope) Changes(tx *Tx) dao.DAO[*Change, ChangeField, int64] {
-	return scoped(sc, tx.t.changes, tx)
 }
 
 // Batch is a batch insert into one of the workspace's tables: every row added
@@ -144,22 +106,7 @@ func batch[R any, C ~string, K ~string, ID any](sc *Scope, s *dao.Schema[R, C, K
 	return Batch[R, C]{b: s.On(tx.tx).Batch(), ws: sc.id}
 }
 
-func (sc *Scope) ChunkBatch(tx *Tx) Batch[*Chunk, ChunkField]     { return batch(sc, tx.t.chunks, tx) }
-func (sc *Scope) TagBatch(tx *Tx) Batch[*DocValue, DocValueField] { return batch(sc, tx.t.tags, tx) }
-func (sc *Scope) AliasBatch(tx *Tx) Batch[*DocValue, DocValueField] {
-	return batch(sc, tx.t.aliases, tx)
-}
-func (sc *Scope) NameBatch(tx *Tx) Batch[*DocName, DocNameField] { return batch(sc, tx.t.names, tx) }
-func (sc *Scope) LinkKeyBatch(tx *Tx) Batch[*LinkKey, LinkKeyField] {
-	return batch(sc, tx.t.linkKeys, tx)
-}
-func (sc *Scope) FacetBatch(tx *Tx) Batch[*Facet, FacetField] { return batch(sc, tx.t.facets, tx) }
-func (sc *Scope) DiagnosticBatch(tx *Tx) Batch[*Diagnostic, DiagnosticField] {
-	return batch(sc, tx.t.diagnostics, tx)
-}
-func (sc *Scope) EmbeddingBatch(tx *Tx) Batch[*Embedding, EmbeddingField] {
-	return batch(sc, tx.t.embeddings, tx)
-}
+// PatternBatch is a batch insert into the workspace's patterns.
 func (sc *Scope) PatternBatch(tx *Tx) Batch[*Pattern, PatternField] {
 	return batch(sc, tx.t.patterns, tx)
 }

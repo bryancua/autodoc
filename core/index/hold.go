@@ -236,7 +236,7 @@ func (h *holds) load(ctx context.Context, s *Store, reg *registrations.Table) er
 	}
 	m := map[string]held{}
 	err := s.read(ctx, func(tx *store.Tx) error {
-		docs, err := s.sc.Documents(tx).OrderBy(dao.Asc(store.ByPath)).Select(store.DocPath, store.DocIndexer)
+		docs, err := s.documents(tx).OrderBy(dao.Asc(byPath)).Select(DocPath, DocIndexer)
 		for _, d := range docs {
 			if ext, what := heldBy(d.Indexer, reg); what != "" {
 				m[d.Path] = held{ext: ext, what: what, state: HoldUnchecked}

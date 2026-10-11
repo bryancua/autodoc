@@ -51,7 +51,7 @@ func (s *Store) chunkTexts(ctx context.Context, hits []search.Hit) ([]string, er
 		for i, h := range hits {
 			d, ok := docs[h.Path]
 			if !ok {
-				row, err := s.sc.Documents(tx).With(store.DocPath, h.Path).Get(store.DocID, store.DocActiveGen)
+				row, err := s.documents(tx).With(DocPath, h.Path).Get(DocID, DocActiveGen)
 				if errors.Is(err, dao.ErrNoRows) {
 					return fmt.Errorf("%w: %s", rank.ErrStale, h.Path)
 				}
@@ -64,11 +64,11 @@ func (s *Store) chunkTexts(ctx context.Context, hits []search.Hit) ([]string, er
 			if d.gen != h.Generation {
 				return fmt.Errorf("%w: %s is at another generation", rank.ErrStale, h.Path)
 			}
-			rows, err := s.sc.Chunks(tx).With(store.ChunkDoc, d.id).
-				With(store.ChunkByteStart, int64(h.ByteStart)).With(store.ChunkByteEnd, int64(h.ByteEnd)).
+			rows, err := s.chunks(tx).With(ChunkDoc, d.id).
+				With(ChunkByteStart, int64(h.ByteStart)).With(ChunkByteEnd, int64(h.ByteEnd)).
 				WithPredicate(dao.Lte(`"chunk"."gen_from"`, d.gen)).
 				WithPredicate(dao.Or(dao.IsNull(`"chunk"."gen_to"`), dao.Gt(`"chunk"."gen_to"`, d.gen))).
-				Limit(2).Select(store.ChunkBreadcrumb, store.ChunkBody)
+				Limit(2).Select(ChunkBreadcrumb, ChunkBody)
 			if err != nil {
 				return err
 			}
