@@ -77,7 +77,7 @@ func TestTheStorePassesTheSearchConformanceSuite(t *testing.T) {
 		}
 		var sv schemaVar
 		sv.v.Store(&schemaState{sch, "conformance"})
-		e := newEnv(tb, Options{Provider: bodyProvider{refuse: "glimmer"}, Schema: sv.get})
+		e := newEnv(tb, options{Provider: bodyProvider{refuse: "glimmer"}, Schema: sv.get})
 		var later []searchtest.Doc
 		for _, d := range docs {
 			if d.Unready {
@@ -131,7 +131,7 @@ func TestAHeldPublishTakesTheCompleteFallback(t *testing.T) {
 	var hold atomic.Bool
 	release := make(chan struct{})
 	p := newFake("m", "a")
-	e := newEnv(t, Options{Provider: p, beforePublish: func() {
+	e := newEnv(t, options{Provider: p, beforePublish: func() {
 		if hold.CompareAndSwap(true, false) {
 			<-release
 		}
@@ -172,7 +172,7 @@ func TestAHeldPublishTakesTheCompleteFallback(t *testing.T) {
 // scans the stored codes in its own snapshot and answers as before the deletion.
 func TestAViewHeldAcrossADeletionScansItsSnapshot(t *testing.T) {
 	p := newFake("m", "a")
-	e := newEnv(t, Options{Provider: p, noGC: true})
+	e := newEnv(t, options{Provider: p, noGC: true})
 	e.put("a.md", "zebra alpha\n", "b.md", "zebra beta\n")
 	e.ready()
 	e.atHead()
@@ -207,7 +207,7 @@ func TestAViewHeldAcrossADeletionScansItsSnapshot(t *testing.T) {
 // own snapshot.
 func TestAViewHeldOnTheOldModelScansItsCodes(t *testing.T) {
 	a := newFake("m", "a")
-	e := newEnv(t, Options{Provider: a})
+	e := newEnv(t, options{Provider: a})
 	e.put("x.md", "zebra giraffe\n", "y.md", "hippo river\n")
 	e.ready()
 	e.atHead()
@@ -216,7 +216,7 @@ func TestAViewHeldOnTheOldModelScansItsCodes(t *testing.T) {
 	b := newFake("m2", "b")
 	b.hold("hippo")
 	e.stop = nil
-	e.open(Options{Provider: b})
+	e.open(options{Provider: b})
 	e.eventually("b filling", func() bool { return len(b.texts()) > 0 })
 	st := searchStore{s: e.store, sem: e.ix.sem}
 	err := st.View(context.Background(), func(v *View) error {
@@ -273,7 +273,7 @@ func TestAQueryEmbeddedWithAMovedModelIsEmbeddedAgain(t *testing.T) {
 	var calls atomic.Int32
 	var stale sync.Once
 	p := newFake("m", "a")
-	e := newEnv(t, Options{Provider: p, NewSearcher: func(st search.Store[int64, *View], emb search.QueryEmbedder) search.Searcher {
+	e := newEnv(t, options{Provider: p, NewSearcher: func(st search.Store[int64, *View], emb search.QueryEmbedder) search.Searcher {
 		if emb == nil {
 			return defaultSearcher(st, nil)
 		}
@@ -305,7 +305,7 @@ func TestAQueryEmbeddedWithAMovedModelIsEmbeddedAgain(t *testing.T) {
 // it admits, as one with a facet filter always did (golib's engine lists for every kind of filter);
 // a root path is no filter, and lists nothing.
 func TestEveryFilterAloneLists(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("guides/a.md", "---\ntags: [design]\n---\nalpha\n", "guides/b.md", "beta\n", "notes/c.md", "---\ntags: [design]\n---\ngamma\n")
 	for name, c := range map[string]struct {
 		opts QueryOpts

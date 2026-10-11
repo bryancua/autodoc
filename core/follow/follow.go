@@ -54,18 +54,34 @@ type Status struct {
 	Retrying []string
 }
 
-// Options configures a follower. Zero values take the defaults.
-type Options struct {
-	PollInterval time.Duration // Poll's listing interval, and degraded mode's full-scan interval (default 2 s)
-	MinBackoff   time.Duration // the first retry delay (default 1 s)
-	MaxBackoff   time.Duration // the retry delay's cap (default 1 min)
-	// Match reports whether a path belongs to the workspace (include, not exclude). Nil matches all.
-	Match func(path string) bool
-	// Excluded reports whether a path lies in an excluded directory (.git, node_modules). Such a
-	// directory is never walked, watched or polled — its contents are not the workspace's, and on a
-	// large root they are most of it — and one that cannot be read is not retried. Nil excludes
-	// nothing.
-	Excluded func(path string) bool
+// options are a follower's settings, each set by an Option; zero values take the defaults.
+type options struct {
+	pollInterval time.Duration // Poll's listing interval, and degraded mode's full-scan interval (default 2 s)
+	minBackoff   time.Duration // the first retry delay (default 1 s)
+	maxBackoff   time.Duration // the retry delay's cap (default 1 min)
+	match        func(path string) bool
+	excluded     func(path string) bool
+}
+
+// Option sets one of a follower's settings.
+type Option func(*options)
+
+// WithPollInterval is Poll's listing interval, and degraded mode's full-scan interval (default 2 s).
+func WithPollInterval(d time.Duration) Option { return func(o *options) { o.pollInterval = d } }
+
+// WithBackoff is a retry's first delay (default 1 s) and its cap (default 1 min).
+func WithBackoff(first, most time.Duration) Option {
+	return func(o *options) { o.minBackoff, o.maxBackoff = first, most }
+}
+
+// WithMatch reports whether a path belongs to the workspace (include, not exclude); default all.
+func WithMatch(match func(path string) bool) Option { return func(o *options) { o.match = match } }
+
+// WithExcluded reports whether a path lies in an excluded directory (.git, node_modules). Such a
+// directory is never walked, watched or polled — its contents are not the workspace's, and on a
+// large root they are most of it — and one that cannot be read is not retried. Default none.
+func WithExcluded(excluded func(path string) bool) Option {
+	return func(o *options) { o.excluded = excluded }
 }
 
 // Follower follows one workspace root.
@@ -73,7 +89,7 @@ type Follower struct {
 	fsys  vfs.FS
 	store Store
 	queue Queue
-	opts  Options
+	opts  options
 
 	mu     sync.Mutex
 	status Status
@@ -89,18 +105,22 @@ type retryEntry struct {
 }
 
 // New returns a follower of fsys that queues paths for the indexer behind store and queue.
-func New(fsys vfs.FS, store Store, queue Queue, opts Options) *Follower {
-	if opts.PollInterval <= 0 {
-		opts.PollInterval = 2 * time.Second
+func New(fsys vfs.FS, store Store, queue Queue, set ...Option) *Follower {
+	var opts options
+	for _, s := range set {
+		s(&opts)
 	}
-	if opts.MinBackoff <= 0 {
-		opts.MinBackoff = time.Second
+	if opts.pollInterval <= 0 {
+		opts.pollInterval = 2 * time.Second
 	}
-	if opts.MaxBackoff <= 0 {
-		opts.MaxBackoff = time.Minute
+	if opts.minBackoff <= 0 {
+		opts.minBackoff = time.Second
 	}
-	if opts.MaxBackoff < opts.MinBackoff {
-		opts.MaxBackoff = opts.MinBackoff
+	if opts.maxBackoff <= 0 {
+		opts.maxBackoff = time.Minute
+	}
+	if opts.maxBackoff < opts.minBackoff {
+		opts.maxBackoff = opts.minBackoff
 	}
 	return &Follower{fsys: fsys, store: store, queue: queue, opts: opts,
 		status: Status{Following: Starting}, retry: map[string]*retryEntry{}, rescan: make(chan struct{}, 1)}
@@ -151,14 +171,14 @@ func (f *Follower) publishRetry() {
 // whole root every poll interval, which still finds changes everywhere a scan can read, and retries
 // the setup with backoff.
 func (f *Follower) Run(ctx context.Context) error {
-	backoff := f.opts.MinBackoff
+	backoff := f.opts.minBackoff
 	for ctx.Err() == nil {
 		events, mode, err := f.watch(ctx)
 		if err != nil {
 			f.setFollowing(Degraded, err)
 			f.reconcile(ctx, ".")
 			f.degraded(ctx, backoff)
-			backoff = min(2*backoff, f.opts.MaxBackoff)
+			backoff = min(2*backoff, f.opts.maxBackoff)
 			continue
 		}
 		f.setFollowing(mode, nil)
@@ -170,13 +190,13 @@ func (f *Follower) Run(ctx context.Context) error {
 		}
 		// the watch ended without ctx (its root went, a subtree it could not watch): set it up again
 		// after a pause, unless it had been running long enough to count as healthy
-		if time.Since(start) > f.opts.MaxBackoff {
-			backoff = f.opts.MinBackoff
+		if time.Since(start) > f.opts.maxBackoff {
+			backoff = f.opts.minBackoff
 		}
 		if !clock.Sleep(ctx, backoff) {
 			break
 		}
-		backoff = min(2*backoff, f.opts.MaxBackoff)
+		backoff = min(2*backoff, f.opts.maxBackoff)
 	}
 	return ctx.Err()
 }
@@ -184,7 +204,7 @@ func (f *Follower) Run(ctx context.Context) error {
 // watch sets up a native watch when the driver has one and it succeeds, else a poll. Neither looks
 // inside an excluded directory.
 func (f *Follower) watch(ctx context.Context) (<-chan vfs.Event, string, error) {
-	opts := []vfs.WatchOption{vfs.Recursive(), vfs.SkipDirs(f.opts.Excluded)}
+	opts := []vfs.WatchOption{vfs.Recursive(), vfs.SkipDirs(f.opts.excluded)}
 	var werr error
 	if w, ok := f.fsys.(vfs.Watcher); ok {
 		events, err := w.Watch(ctx, ".", opts...)
@@ -193,7 +213,7 @@ func (f *Follower) watch(ctx context.Context) (<-chan vfs.Event, string, error) 
 		}
 		werr = err
 	}
-	events, err := vfs.Poll(ctx, f.fsys, ".", f.opts.PollInterval, opts...)
+	events, err := vfs.Poll(ctx, f.fsys, ".", f.opts.pollInterval, opts...)
 	if err == nil {
 		return events, Polling, nil
 	}
@@ -241,7 +261,7 @@ func (f *Follower) drain(ctx context.Context, events <-chan vfs.Event) {
 func (f *Follower) degraded(ctx context.Context, wait time.Duration) {
 	retry := time.NewTimer(wait)
 	defer retry.Stop()
-	tick := time.NewTicker(f.opts.PollInterval)
+	tick := time.NewTicker(f.opts.pollInterval)
 	defer tick.Stop()
 	for {
 		select {
@@ -294,7 +314,7 @@ func (f *Follower) touch(ctx context.Context, p string) {
 	}
 }
 
-func (f *Follower) match(p string) bool { return f.opts.Match == nil || f.opts.Match(p) }
+func (f *Follower) match(p string) bool { return f.opts.match == nil || f.opts.match(p) }
 
 // reconcile queues every eligible file under dir whose Version differs from the index, and every
 // indexed path under dir that is gone — which includes what is indexed inside a directory excluded
@@ -304,7 +324,7 @@ func (f *Follower) match(p string) bool { return f.opts.Match == nil || f.opts.M
 func (f *Follower) reconcile(ctx context.Context, dir string) {
 	seen := map[string]bool{}
 	failed := map[string]error{}
-	for fi, err := range vfs.Walk(ctx, f.fsys, dir, vfs.WalkSkipDirs(f.opts.Excluded)) {
+	for fi, err := range vfs.Walk(ctx, f.fsys, dir, vfs.WalkSkipDirs(f.opts.excluded)) {
 		if err != nil {
 			if ctx.Err() != nil {
 				return
@@ -312,7 +332,7 @@ func (f *Follower) reconcile(ctx context.Context, dir string) {
 			if errors.Is(err, fs.ErrNotExist) {
 				continue // gone before the walk reached it: what was indexed there is missing below
 			}
-			if f.opts.Excluded != nil && f.opts.Excluded(fi.Path) {
+			if f.opts.excluded != nil && f.opts.excluded(fi.Path) {
 				continue // not the workspace's: nothing indexed is under it
 			}
 			failed[fi.Path] = err
@@ -357,10 +377,10 @@ func (f *Follower) updateRetry(dir string, failed map[string]error) {
 	for p, err := range failed {
 		e, ok := f.retry[p]
 		if !ok {
-			e = &retryEntry{delay: f.opts.MinBackoff}
+			e = &retryEntry{delay: f.opts.minBackoff}
 			f.retry[p] = e
 		} else {
-			e.delay = min(2*e.delay, f.opts.MaxBackoff)
+			e.delay = min(2*e.delay, f.opts.maxBackoff)
 		}
 		e.due, e.err = now.Add(e.delay), err
 	}

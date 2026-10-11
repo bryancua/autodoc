@@ -92,9 +92,9 @@ type Store struct {
 	sc *store.Scope
 }
 
-// Open is workspace's index in db. The store is the caller's: it outlives the index, and Close
+// NewStore is workspace's index in db. The store is the caller's: it outlives the index, and Close
 // leaves it open.
-func Open(db *store.Store, workspace int64) *Store {
+func NewStore(db *store.Store, workspace int64) *Store {
 	return &Store{db: db, sc: db.Workspace(workspace)}
 }
 

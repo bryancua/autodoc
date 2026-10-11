@@ -9,7 +9,7 @@ import (
 // holds yet (an editor's unsaved one) by the same rules; what the index keeps no link for answers
 // nothing.
 func TestResolveLinkAnswersAsTheIndex(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put(
 		"x.md", "root x", "d/x.md", "nested x", "d/y.md", "only y",
 		"z.md", "---\naliases: [Zed]\n---\nz",

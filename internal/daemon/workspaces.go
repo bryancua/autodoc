@@ -260,12 +260,14 @@ func (m *Workspaces) start(id int64, c config.Workspace) (*served, error) {
 	sh.setPath(schemaPath)
 	sh.watch(m.ctx, schemaPoll)
 	override, provider, providerErr := m.providerOf(id)
-	ix := index.NewIndexer(index.Open(m.db, id), ws.FS, index.Options{Match: ws.Matcher.Match, Provider: provider,
-		BatchDelay: m.opts.BatchDelay, Logger: m.opts.Log, Workspace: c.Name, ExternalEmbedding: true,
-		OnEmbeddingWork: func() { m.queue.wakeWorkspace(c.Name) }, Schema: sh.get, TextExtensions: text.load,
-		Registrations: m.opts.Registrations, Rank: m.opts.Rank, Now: m.db.Clock()})
+	ix := index.New(index.NewStore(m.db, id), ws.FS,
+		index.WithMatch(ws.Matcher.Match), index.WithProvider(provider), index.WithBatching(0, m.opts.BatchDelay),
+		index.WithLogger(m.opts.Log), index.WithWorkspace(c.Name), index.WithSchema(sh.get),
+		index.WithTextExtensions(text.load), index.WithRegistrations(m.opts.Registrations), index.WithRank(m.opts.Rank),
+		index.WithClock(m.db.Clock()), index.WithExternalEmbedding(func() { m.queue.wakeWorkspace(c.Name) }))
 	ix.SetSemanticPaused(!m.queue.setPolicy(c.Name, policy))
-	f := follow.New(ws.FS, ix, ix, follow.Options{PollInterval: m.opts.Poll, Match: ws.Matcher.Match, Excluded: ws.Matcher.Excluded})
+	f := follow.New(ws.FS, ix, ix, follow.WithPollInterval(m.opts.Poll), follow.WithMatch(ws.Matcher.Match),
+		follow.WithExcluded(ws.Matcher.Excluded))
 	ix.SetRescanner(f) // index.reindex(ws, "") finds the files the index lacks through the follower
 	ctx, cancel := context.WithCancel(m.ctx)
 	var wg sync.WaitGroup

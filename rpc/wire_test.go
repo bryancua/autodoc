@@ -270,8 +270,8 @@ func wireServer(t *testing.T) (*Server, *golibrpc.Client, *memfs.FS) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ix := index.NewIndexer(index.Open(db, row.ID), fsys, index.Options{Match: md, BatchDelay: 5 * time.Millisecond})
-	f := follow.New(fsys, ix, ix, follow.Options{Match: md, PollInterval: 20 * time.Millisecond})
+	ix := index.New(index.NewStore(db, row.ID), fsys, index.WithMatch(md), index.WithBatching(0, 5*time.Millisecond))
+	f := follow.New(fsys, ix, ix, follow.WithMatch(md), follow.WithPollInterval(20*time.Millisecond))
 	ix.SetRescanner(f)
 	var cores sync.WaitGroup
 	cores.Go(func() { _ = ix.Run(ctx) })

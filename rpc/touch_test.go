@@ -31,7 +31,7 @@ func TestTheAPIsWritesAreIndexedAtOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	fsys := memfs.New()
-	ix := index.NewIndexer(index.Open(db, row.ID), fsys, index.Options{Match: md, BatchDelay: 5 * time.Millisecond})
+	ix := index.New(index.NewStore(db, row.ID), fsys, index.WithMatch(md), index.WithBatching(0, 5*time.Millisecond))
 	ixDone := make(chan struct{})
 	go func() { _ = ix.Run(ctx); close(ixDone) }() // no follower: nothing else tells the indexer
 	sock := filepath.Join(t.TempDir(), "s.sock")

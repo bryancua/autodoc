@@ -14,11 +14,11 @@ import (
 // workspace's change head.
 func TestTheStoresReadsFailAsThemselves(t *testing.T) {
 	ctx := context.Background()
-	e := newEnv(t, Options{Provider: newFake("m", "a")})
+	e := newEnv(t, options{Provider: newFake("m", "a")})
 	e.put("a.md", "zebra\n")
 	e.ready()
 	// a workspace that is not there has no change head
-	if _, err := Open(e.db, e.ws+1000).Status(ctx); err == nil {
+	if _, err := NewStore(e.db, e.ws+1000).Status(ctx); err == nil {
 		t.Error("the status of a missing workspace read a change head")
 	}
 	sem := e.ix.sem
@@ -35,7 +35,7 @@ func TestTheStoresReadsFailAsThemselves(t *testing.T) {
 // follow; a limit of 0 is the most a page holds.
 func TestListPagesInPathOrder(t *testing.T) {
 	ctx := context.Background()
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("c.md", "c\n", "a.md", "a\n", "b.md", "b\n")
 	page, more, err := e.store.List(ctx, "", 2)
 	if err != nil || !more || len(page) != 2 || page[0].Path != "a.md" || page[1].Path != "b.md" || page[0].Generation == 0 || page[0].Version == "" {
@@ -52,12 +52,12 @@ func TestListPagesInPathOrder(t *testing.T) {
 // revalidation, at whichever read comes first.
 func TestStatusFailsAsItsReads(t *testing.T) {
 	ctx := context.Background()
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("a.md", "zebra\n")
 	if _, err := e.ix.Status(ctx); err != nil {
 		t.Fatal(err)
 	}
-	fresh := NewIndexer(e.store, e.fsys, Options{}) // its held documents not read yet
+	fresh := newIndexer(e.store, e.fsys, options{}) // its held documents not read yet
 	e.stop()
 	if _, err := e.ix.Status(ctx); err == nil {
 		t.Error("a status read with the store closed")
@@ -84,7 +84,7 @@ func TestStatusFailsAsItsReads(t *testing.T) {
 // document's in-links, and a facet listing, filtered or not.
 func TestAViewsReadsFailAsThemselves(t *testing.T) {
 	ctx := context.Background()
-	e := newEnv(t, Options{Provider: newFake("m", "a")})
+	e := newEnv(t, options{Provider: newFake("m", "a")})
 	e.put("a.md", "zebra\n")
 	e.ready()
 	var v *View

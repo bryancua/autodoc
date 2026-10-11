@@ -111,14 +111,14 @@ func (s *Store) storeWrite(ctx context.Context, fn func(context.Context, *store.
 // a workspace whose indexer does not run: no provider, or its root unavailable. A workspace an
 // indexer runs is swept through it (Sweep), whose writer its reclaim must wait behind.
 func SweepStore(ctx context.Context, db *store.Store, workspace int64) ([]Reclaimed, error) {
-	s := Open(db, workspace)
+	s := NewStore(db, workspace)
 	return s.sweep(ctx, s.storeWrite)
 }
 
 // ReclaimStore reclaims workspace's model fp through the store alone: a model taken out of use with
 // its provider's removal, whose workspace's indexer is restarting without one.
 func ReclaimStore(ctx context.Context, db *store.Store, workspace int64, fp string) (Reclaimed, error) {
-	s := Open(db, workspace)
+	s := NewStore(db, workspace)
 	return s.reclaim(ctx, fp, s.storeWrite)
 }
 

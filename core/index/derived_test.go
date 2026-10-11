@@ -110,7 +110,7 @@ func withPDF(p string) bool {
 // text file may be, but within the container's bound, is derived, not refused.
 func TestADerivedDocumentIsIndexed(t *testing.T) {
 	d := &pdfDeriver{version: "1"}
-	e := newEnv(t, Options{Match: withPDF, Registrations: deriving(t, d)})
+	e := newEnv(t, options{Match: withPDF, Registrations: deriving(t, d)})
 	e.put("manual.pdf", "kestrel hovering procedure")
 	if got, want := e.indexerOf("manual.pdf"), "d.pdf:fake/pdf@1+c"+ChunkerVersion+".s3.t512"; got != want {
 		t.Fatalf("recorded %q, want %q", got, want)
@@ -130,7 +130,7 @@ func TestADerivedDocumentIsIndexed(t *testing.T) {
 // one is not indexed; the job records why, and waits for the file to change.
 func TestADerivedTextUnderAnotherIdentityIsRefused(t *testing.T) {
 	d := &pdfDeriver{version: "1", claim: "2"}
-	e := newEnv(t, Options{Match: withPDF, Registrations: deriving(t, d), RetryDelay: time.Millisecond})
+	e := newEnv(t, options{Match: withPDF, Registrations: deriving(t, d), RetryDelay: time.Millisecond})
 	e.write("a.pdf", "kestrel")
 	e.ix.Touch("a.pdf")
 	e.eventually("a.pdf failing", func() bool { ok, _, _ := e.job("a.pdf"); return ok && d.derives.Load() > 0 && e.pendingJobs() == 1 })
@@ -149,7 +149,7 @@ func TestADerivedTextUnderAnotherIdentityIsRefused(t *testing.T) {
 // is refused before a byte of it is read, and the document indexed before leaves the index.
 func TestOversizedDerivedTextIsRefusedUnread(t *testing.T) {
 	d := &pdfDeriver{version: "1"}
-	e := newEnv(t, Options{Match: withPDF, Registrations: deriving(t, d)})
+	e := newEnv(t, options{Match: withPDF, Registrations: deriving(t, d)})
 	e.put("a.pdf", "kestrel")
 	d.bytes = derived.MaxText + 1
 	d.reads.Store(0)
@@ -168,10 +168,10 @@ func TestOversizedDerivedTextIsRefusedUnread(t *testing.T) {
 func TestAFormatTheBuildDerivesIsNotHeld(t *testing.T) {
 	ctx := context.Background()
 	both := &pdfDeriver{version: "1", formats: []string{".pdf", ".docx"}}
-	e := newEnv(t, Options{Match: withPDF, Registrations: deriving(t, both)})
+	e := newEnv(t, options{Match: withPDF, Registrations: deriving(t, both)})
 	e.put("a.pdf", "kestrel", "b.docx", "falcon")
 	pdfOnly := &pdfDeriver{version: "7"}
-	e.open(Options{Match: withPDF, Registrations: deriving(t, pdfOnly)})
+	e.open(options{Match: withPDF, Registrations: deriving(t, pdfOnly)})
 	e.eventually("a.pdf derived again", func() bool {
 		return e.indexerOf("a.pdf") == "d.pdf:fake/pdf@7+c"+ChunkerVersion+".s3.t512" && e.pendingJobs() == 0
 	})
@@ -205,7 +205,7 @@ func TestTheDeriversOwnFailureKeepsTheRow(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			d := &pdfDeriver{version: "1"}
-			e := newEnv(t, Options{Match: withPDF, Registrations: deriving(t, d), RetryDelay: time.Millisecond, MaxRetryDelay: 5 * time.Millisecond})
+			e := newEnv(t, options{Match: withPDF, Registrations: deriving(t, d), RetryDelay: time.Millisecond, MaxRetryDelay: 5 * time.Millisecond})
 			e.put("a.pdf", "kestrel")
 			indexed, _, _ := e.store.Version(context.Background(), "a.pdf")
 			d.fail.Store(c.mode)
@@ -237,11 +237,11 @@ func TestTheDeriversOwnFailureKeepsTheRow(t *testing.T) {
 // still searchable, and fails the job without trying again. Once the file is edited, the same
 // refusal deletes the row: its text is no longer the file's.
 func TestARefusalDeletesOnlyARowItsFileLeft(t *testing.T) {
-	e := newEnv(t, Options{Match: withPDF, Registrations: deriving(t, &pdfDeriver{version: "1"}), RetryDelay: time.Millisecond})
+	e := newEnv(t, options{Match: withPDF, Registrations: deriving(t, &pdfDeriver{version: "1"}), RetryDelay: time.Millisecond})
 	e.put("a.pdf", "kestrel")
 	recorded := e.indexerOf("a.pdf")
 	liar := &pdfDeriver{version: "2", claim: "1"}
-	e.open(Options{Match: withPDF, Registrations: deriving(t, liar), RetryDelay: time.Millisecond})
+	e.open(options{Match: withPDF, Registrations: deriving(t, liar), RetryDelay: time.Millisecond})
 	e.eventually("the refusal recorded", func() bool { _, n, _ := e.job("a.pdf"); return n == 1 })
 	e.failing("a.pdf", "derived as fake/pdf@1, not the frozen fake/pdf@2")
 	time.Sleep(50 * time.Millisecond)

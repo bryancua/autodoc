@@ -81,7 +81,7 @@ func hitPaths(r Result) []string {
 func TestSchemaFacetsAndDiagnostics(t *testing.T) {
 	var sv schemaVar
 	sv.set(t, facetSchema, "s1")
-	e := newEnv(t, Options{Schema: sv.get})
+	e := newEnv(t, options{Schema: sv.get})
 	e.write("adr.md", "---\ntype: adr\ncount: 3\n---\nzebra crossing\n")
 	e.write("memo.md", "---\ntype: memo\nstatus: draft\n---\nzebra stripes\n")
 	e.write("bare.md", "zebra plain\n")
@@ -164,7 +164,7 @@ types:
 func TestSchemaV2FacetsByType(t *testing.T) {
 	var sv schemaVar
 	sv.set(t, facetSchemaV2, "s1")
-	e := newEnv(t, Options{Schema: sv.get})
+	e := newEnv(t, options{Schema: sv.get})
 	e.write("adr.md", "---\ntype: adr\nnumber: 7\n---\nzebra crossing\n")
 	e.write("good.md", "---\ntype: review\nverdict: approved\nstatus: draft\n---\nzebra review\n")
 	e.write("bad.md", "---\ntype: review\n---\nzebra review\n")
@@ -217,7 +217,7 @@ func TestSchemaV2FacetsByType(t *testing.T) {
 func TestFacetFilterAppliesBeforeTopN(t *testing.T) {
 	var sv schemaVar
 	sv.set(t, facetSchema, "s1")
-	e := newEnv(t, Options{Schema: sv.get})
+	e := newEnv(t, options{Schema: sv.get})
 	for i := range retrieverTop + 10 {
 		p := fmt.Sprintf("n%03d.md", i)
 		e.write(p, fmt.Sprintf("---\ntype: note\ntitle: common common\n---\n# common\n\ncommon common %d\n", i))
@@ -251,7 +251,7 @@ func TestFacetFilterAppliesBeforeTopN(t *testing.T) {
 func TestSchemaChangeRevalidatesMarkdownOnly(t *testing.T) {
 	var sv schemaVar
 	sv.set(t, facetSchema, "s1")
-	e := newEnv(t, Options{Schema: sv.get, Match: func(p string) bool { return testMatch(p) || strings.HasSuffix(p, ".txt") }})
+	e := newEnv(t, options{Schema: sv.get, Match: func(p string) bool { return testMatch(p) || strings.HasSuffix(p, ".txt") }})
 	e.write("a.md", "---\ntype: draft\n---\nalpha\n")
 	e.write("t.txt", "type: adr in plain text\n")
 	for _, p := range []string{"a.md", "t.txt"} {
@@ -285,14 +285,14 @@ func TestSchemaChangeRevalidatesMarkdownOnly(t *testing.T) {
 func TestSchemaChangedWhileStoppedRevalidatesOnStart(t *testing.T) {
 	var sv schemaVar
 	sv.set(t, facetSchema, "s1")
-	e := newEnv(t, Options{Schema: sv.get})
+	e := newEnv(t, options{Schema: sv.get})
 	e.write("a.md", "---\ntype: draft\n---\nalpha\n")
 	e.ix.Touch("a.md")
 	e.indexedAt("a.md")
 	e.stop()
 	e.stop = nil
 	sv.set(t, strings.Replace(facetSchema, "enum: [note, adr]", "enum: [note, adr, draft]", 1), "s2")
-	e.open(Options{Schema: sv.get})
+	e.open(options{Schema: sv.get})
 	e.eventually("a.md revalidated at start", func() bool {
 		return reflect.DeepEqual(e.facets("a.md"), []string{"status=active", "type=draft"})
 	})
@@ -300,7 +300,7 @@ func TestSchemaChangedWhileStoppedRevalidatesOnStart(t *testing.T) {
 
 // Without a schema, malformed frontmatter is still a diagnostic; nothing is faceted.
 func TestNoSchemaStillDiagnosesMalformedFrontmatter(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.write("bad.md", "---\ntitle: [unclosed\n---\nbody\n")
 	e.write("ok.md", "---\ntype: adr\n---\nbody\n")
 	for _, p := range []string{"bad.md", "ok.md"} {

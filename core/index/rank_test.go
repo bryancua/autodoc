@@ -53,7 +53,7 @@ func rankedEnv(t *testing.T, r Rank, ranker rank.Ranker) (*env, *rank.Holder) {
 		h.Set(ranker, rank.DefaultWindow)
 	}
 	r.Source = h
-	e := newEnv(t, Options{Rank: r})
+	e := newEnv(t, options{Rank: r})
 	// lexically, short.md's one word in a short chunk outranks long.md's
 	e.put("short.md", "# Short\n\nkestrel\n", "long.md", "# Long\n\nkestrel among many other words in a longer chunk of text\n")
 	return e, h

@@ -114,7 +114,7 @@ func TestExtractLinks(t *testing.T) {
 
 // TestResolutionRules: each rule of ADR 0204 §4.6, and the markdown forms.
 func TestResolutionRules(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put(
 		"x.md", "root x", "d/x.md", "nested x",
 		"d/y.md", "only y",
@@ -151,7 +151,7 @@ func TestResolutionRules(t *testing.T) {
 // TestExactFileTakesOverFromAlias: a new x.md takes [[x]] from an alias match, and gives it back
 // when it goes.
 func TestExactFileTakesOverFromAlias(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("n.md", "---\naliases: [x]\n---\nn", "src.md", "[[x]]")
 	eq(t, "before", e.targets("src.md"), []string{"[[x]] -> n.md"})
 	e.put("x.md", "the real x")
@@ -163,7 +163,7 @@ func TestExactFileTakesOverFromAlias(t *testing.T) {
 // TestRenameReresolves: renaming a target unresolves the links to its old name and resolves those
 // to its new one, markdown and relative links too.
 func TestRenameReresolves(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("old.md", "target", "a.md", "[[old]] [p](old.md) [[./old]]", "b.md", "[[new]] [q](new.md) [[./new]]")
 	eq(t, "a before", e.targets("a.md"), []string{"[[old]] -> old.md", "[p](old.md) -> old.md", "[[./old]] -> old.md"})
 	eq(t, "b before", e.targets("b.md"), []string{"[[new]] -> -", "[q](new.md) -> -", "[[./new]] -> -"})
@@ -181,7 +181,7 @@ func TestRenameReresolves(t *testing.T) {
 // TestDeletedTargetUnresolves: deleting a target leaves its links unresolved, and deleting a
 // source takes its links with it.
 func TestDeletedTargetUnresolves(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("t.md", "target", "s.md", "[[t]] ![[t#Part]] [m](t.md)")
 	e.remove("t.md")
 	eq(t, "links", e.targets("s.md"), []string{"[[t]] -> -", "![[t#Part]] -> -", "[m](t.md) -> -"})
@@ -193,7 +193,7 @@ func TestDeletedTargetUnresolves(t *testing.T) {
 // TestAliasChangeReresolves: an alias gained takes the links under it; an alias dropped lets them
 // go, to another file or to none.
 func TestAliasChangeReresolves(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("a/k.md", "an older k", "n.md", "no alias yet", "src.md", "[[k]] [[nick]]")
 	eq(t, "before", e.targets("src.md"), []string{"[[k]] -> a/k.md", "[[nick]] -> -"})
 	e.put("n.md", "---\naliases: [k, nick]\n---\nnow both")
@@ -204,7 +204,7 @@ func TestAliasChangeReresolves(t *testing.T) {
 
 // TestBacklinksMatchLinks: every resolved link is its target's backlink, and nothing else is.
 func TestBacklinksMatchLinks(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("a.md", "[[b]] [[c]] [[a]]", "b.md", "[[c]] [x](a.md) [[missing]]", "c.md", "![[b#H]]", "d.md", "none")
 	ctx := context.Background()
 	var fromLinks, fromBacklinks []string
@@ -238,7 +238,7 @@ func TestBacklinksMatchLinks(t *testing.T) {
 }
 
 func TestNeighborhood(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	// a → b → c → d, e → a, and f alone
 	e.put("a.md", "[[b]]", "b.md", "[[c]]", "c.md", "[[d]]", "d.md", "end", "e.md", "![[a]]", "f.md", "[[nothing]]")
 	ctx := context.Background()
@@ -267,7 +267,7 @@ func TestNeighborhood(t *testing.T) {
 // TestTieBrokenByDelete: of two files tied for a name, deleting one gives the link to the other,
 // though the link never reached the one deleted.
 func TestTieBrokenByDelete(t *testing.T) {
-	e := newEnv(t, Options{})
+	e := newEnv(t, options{})
 	e.put("p/v.md", "one", "q/v.md", "two", "src.md", "[[v]]")
 	eq(t, "tied", e.targets("src.md"), []string{"[[v]] -> -"})
 	e.remove("p/v.md")
