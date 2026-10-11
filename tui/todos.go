@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/yongjohnlee80/golib/decl"
 	tuidecl "github.com/yongjohnlee80/golib/tui/decl"
 )
 
@@ -70,7 +69,7 @@ func (*todos) Name() string { return "todos" }
 func (t *todos) State() map[string]any {
 	return map[string]any{
 		"App.todosTitle": "todos", "App.todosStatus": "", "App.todoTab": 0, "App.todoDetail": "",
-		"App.todoDetailShown": true, "App.todoHelpShown": false, "App.todoRemoveQuestion": "",
+		"App.todoDetailShown": true, "App.todoHelpShown": false,
 		"App.todoFolder": "",
 		"App.todoStores": t.storesModel, "App.todoMonths": t.monthsModel,
 		"App.todoOpen": t.tabModels[0], "App.todoInProgress": t.tabModels[1], "App.todoDeferred": t.tabModels[2],
@@ -78,26 +77,25 @@ func (t *todos) State() map[string]any {
 	}
 }
 
-func (t *todos) Commands() map[string]decl.HandlerFunc {
-	return map[string]decl.HandlerFunc{
-		"App.openTodos":           none(t.open),
-		"App.todosTab":            oneNumber("App.todosTab", "a tab", t.showTab),
-		"App.todoMoved":           oneNumber("App.todoMoved", "a row", t.moved),
-		"App.todoActivated":       oneNumber("App.todoActivated", "a row", t.activated),
-		"App.todoStoreChosen":     oneNumber("App.todoStoreChosen", "a row", t.storeChosen),
-		"App.todoMonthChosen":     oneNumber("App.todoMonthChosen", "a row", t.monthChosen),
-		"App.todoAdd":             none(t.add),
-		"App.todoAddTitle":        oneString("App.todoAddTitle", "a title", t.addTitle),
-		"App.todoRemove":          none(t.remove),
-		"App.todoRemoveConfirmed": none(t.removeConfirmed),
-		"App.todoCycle":           none(t.cycle),
-		"App.todoRefresh":         none(t.refresh),
-		"App.todoToggleDetail":    none(t.toggleDetail),
-		"App.todoToggleHelp":      none(t.toggleHelp),
-		"App.todoLoad":            none(func() { t.chooseFolder("load", "load a todo store: its project's folder") }),
-		"App.todoNew":             none(func() { t.chooseFolder("new", "a new todo store: the project's folder") }),
-		"App.todoMove":            none(func() { t.chooseFolder("move", "move the store: its new folder") }),
-		"App.todoFolderChosen":    oneString("App.todoFolderChosen", "a folder", t.folderChosen),
+func (t *todos) Commands() map[string]Command {
+	return map[string]Command{
+		"App.openTodos":        none(t.open),
+		"App.todosTab":         oneNumber("a tab", t.showTab),
+		"App.todoMoved":        oneNumber("a row", t.moved),
+		"App.todoActivated":    oneNumber("a row", t.activated),
+		"App.todoStoreChosen":  oneNumber("a row", t.storeChosen),
+		"App.todoMonthChosen":  oneNumber("a row", t.monthChosen),
+		"App.todoAdd":          none(t.add),
+		"App.todoAddTitle":     oneString("a title", t.addTitle),
+		"App.todoRemove":       none(t.remove),
+		"App.todoCycle":        none(t.cycle),
+		"App.todoRefresh":      none(t.refresh),
+		"App.todoToggleDetail": none(t.toggleDetail),
+		"App.todoToggleHelp":   none(t.toggleHelp),
+		"App.todoLoad":         none(func() { t.chooseFolder("load", "load a todo store: its project's folder") }),
+		"App.todoNew":          none(func() { t.chooseFolder("new", "a new todo store: the project's folder") }),
+		"App.todoMove":         none(func() { t.chooseFolder("move", "move the store: its new folder") }),
+		"App.todoFolderChosen": oneString("a folder", t.folderChosen),
 	}
 }
 
@@ -366,15 +364,12 @@ func (t *todos) remove() {
 	if t.readOnly() {
 		return
 	}
-	t.c.Set("App.todoRemoveQuestion", fmt.Sprintf("Remove %q? Its file is deleted.", str(x, "title")))
-	t.c.Open("todoRemove")
+	t.c.Ask(Question{Title: "remove the task?", Text: fmt.Sprintf("Remove %q? Its file is deleted.", str(x, "title")),
+		OnYes: func() { t.removeConfirmed(x) }})
 }
 
-func (t *todos) removeConfirmed() {
-	x := t.task(t.cursor)
-	if x == nil {
-		return
-	}
+// removeConfirmed removes the task asked about, whatever row the cursor is on by then.
+func (t *todos) removeConfirmed(x map[string]any) {
 	t.write("todos.remove", []any{t.at, str(x, "id"), str(x, "rev")}, func(any) { t.c.Notify("todos: removed " + str(x, "id")) })
 }
 

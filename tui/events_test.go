@@ -83,8 +83,7 @@ func TestAPeersRemovalKeepsTheUnsavedText(t *testing.T) {
 	})
 	one.s.WaitFor(t, "dirty", func(string) bool { return one.file().dirty })
 	two.h.p.Post(func() {
-		two.h.removing = "alpha"
-		two.h.removeWorkspaceConfirmed()
+		two.h.removeWorkspaceConfirmed("alpha")
 	})
 	one.s.WaitForText(t, "· beta")
 	one.waitNoticed(t, "kept as an untitled draft")

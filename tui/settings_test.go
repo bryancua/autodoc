@@ -524,8 +524,8 @@ func TestARenameIsInTheListBeforeTheRelisting(t *testing.T) {
 	r.waitNoticed(t, "docs: saved name")
 	r.h.p.Post(func() { r.h.startRemoveWorkspace(0) })
 	r.s.WaitForText(t, "Delete the workspace docs?")
-	if got := onLoop(r, func() string { return r.h.removing }); got != "docs" {
-		t.Fatalf("Delete… asked about %q, want docs", got)
+	if got := onLoop(r, func() string { v, _ := r.h.p.Tree().Source("App.askText"); return v.Raw }); !strings.HasPrefix(got, "Delete the workspace docs?") {
+		t.Fatalf("Delete… asked %q, want about docs", got)
 	}
 }
 
@@ -544,7 +544,7 @@ func TestFindPreviousWithNothingToFind(t *testing.T) {
 	r := runTUI(t, NewSession(d.sock, nil), Options{})
 	r.s.WaitForText(t, "· kb")
 	r.h.p.Post(func() {
-		if err := r.h.commands()["App.findAgainPrevious"](nil); err != nil {
+		if err := r.h.commands()["App.findAgainPrevious"].Run(nil); err != nil {
 			t.Error(err)
 		}
 	})
@@ -559,7 +559,7 @@ func TestZoomWithNoImagePreviewDoesNothing(t *testing.T) {
 	before := onLoop(r, func() previewing { return r.h.imagePreview })
 	r.h.p.Post(func() {
 		for _, c := range []string{"App.zoomIn", "App.zoomOut"} {
-			if err := r.h.commands()[c](nil); err != nil {
+			if err := r.h.commands()[c].Run(nil); err != nil {
 				t.Error(err)
 			}
 		}

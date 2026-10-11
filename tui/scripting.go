@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/yongjohnlee80/autodoc/script"
-	"github.com/yongjohnlee80/golib/decl"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -65,9 +64,9 @@ func (h *Host) luaFeature() *scripting {
 	return h.scripting
 }
 
-func (*scripting) Name() string                          { return "scripting" }
-func (*scripting) State() map[string]any                 { return nil }
-func (*scripting) Commands() map[string]decl.HandlerFunc { return nil }
+func (*scripting) Name() string                 { return "scripting" }
+func (*scripting) State() map[string]any        { return nil }
+func (*scripting) Commands() map[string]Command { return nil }
 
 // bind gives the engine autodoc.call; the namespaces follow once the daemon says its contracts.
 func (s *scripting) bind(eng *script.Engine) {

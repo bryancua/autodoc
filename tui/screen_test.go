@@ -967,10 +967,13 @@ func TestEveryCommandRefusesArgumentsNotItsOwn(t *testing.T) {
 	s := qml.SpecValue{Kind: qml.SpecValueString, Raw: "x"}
 	// each list is one no command takes: a Host with no program would panic running any
 	bad := [][]qml.SpecValue{{s, b}, {b, b}, {b, b, b, b}, {frac}, {frac, s}, {s, s, s, b}, {s, s, s, s, b}}
-	for name, fn := range h.commands() {
+	for name, c := range h.commands() {
+		fn := c.handler(name)
 		for _, args := range bad {
 			if err := fn(args); err == nil {
 				t.Errorf("%s accepted %v", name, args)
+			} else if !strings.HasPrefix(err.Error(), name+" takes ") {
+				t.Errorf("%s refused %v without its name first: %v", name, args, err)
 			}
 		}
 	}
@@ -1539,7 +1542,7 @@ func TestRemovingAProviderSaysWhatItDeletes(t *testing.T) {
 		})
 	}
 	question := func() string {
-		return onLoop(r, func() string { v, _ := r.h.p.Tree().Source("App.providerRemoveQuestion"); return v.Raw })
+		return onLoop(r, func() string { v, _ := r.h.p.Tree().Source("App.askText"); return v.Raw })
 	}
 
 	ask("local", "local")
@@ -1547,7 +1550,7 @@ func TestRemovingAProviderSaysWhatItDeletes(t *testing.T) {
 		return strings.Contains(question(), "Semantic search goes off, and embedder's 2 vectors (") &&
 			strings.HasSuffix(question(), " in 1 workspaces are deleted.")
 	})
-	onLoop(r, func() bool { r.h.closeDialog("providerRemove"); return true })
+	onLoop(r, func() bool { r.h.closeDialog("confirm"); return true })
 
 	if _, err := d.db.AddProvider(ctx, store.ProviderSpec{Name: "twin", Kind: store.KindOllama, BaseURL: ollama.URL, Model: "embedder"}); err != nil {
 		t.Fatal(err)
@@ -1556,7 +1559,7 @@ func TestRemovingAProviderSaysWhatItDeletes(t *testing.T) {
 	r.s.WaitFor(t, "the twin keeps them", func(string) bool {
 		return strings.HasSuffix(question(), "embedder keeps its vectors: twin serves it too.")
 	})
-	onLoop(r, func() bool { r.h.closeDialog("providerRemove"); return true })
+	onLoop(r, func() bool { r.h.closeDialog("confirm"); return true })
 
 	ask("spare", "spare")
 	r.s.WaitFor(t, "another in use", func(string) bool {
