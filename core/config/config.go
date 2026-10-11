@@ -78,13 +78,13 @@ type Workspace struct {
 	Include, Exclude []string
 }
 
-// The defaults a workspace gets when it names no patterns of its own.
-var (
-	DefaultInclude = []string{"**/*.md", "**/*.txt", "**/*.yaml", "**/*.yml"}
-	// node_modules anywhere: a JavaScript project's dependencies are hundreds of thousands of files,
-	// their READMEs are not the workspace's files, and walking them is most of a scan's cost
-	DefaultExclude = []string{".git/**", "**/node_modules/**"}
-)
+// DefaultInclude and DefaultExclude are the patterns a workspace gets when it names none of its
+// own: a fresh slice each call, so no caller can change the defaults another reads.
+func DefaultInclude() []string { return []string{"**/*.md", "**/*.txt", "**/*.yaml", "**/*.yml"} }
+
+// node_modules anywhere: a JavaScript project's dependencies are hundreds of thousands of files,
+// their READMEs are not the workspace's files, and walking them is most of a scan's cost.
+func DefaultExclude() []string { return []string{".git/**", "**/node_modules/**"} }
 
 // DefaultPollInterval is the watch fallback's listing interval when none is configured.
 const DefaultPollInterval = 2 * time.Second
@@ -175,10 +175,10 @@ func NormalizeWorkspace(w Workspace) (Workspace, error) {
 	}
 	w.Root = filepath.Clean(root)
 	if w.Include == nil {
-		w.Include = DefaultInclude
+		w.Include = DefaultInclude()
 	}
 	if w.Exclude == nil {
-		w.Exclude = DefaultExclude
+		w.Exclude = DefaultExclude()
 	}
 	for _, p := range append(append([]string{}, w.Include...), w.Exclude...) {
 		if err := ValidPattern(p); err != nil {
@@ -300,8 +300,9 @@ func runtimeDir() (string, error) {
 	return Server{}.StateDirPath()
 }
 
-// StateDirPath resolves the state directory, creating it 0700: server.state_dir, else
-// $XDG_STATE_HOME/autodoc, else ~/.local/state/autodoc. The daemon's log lives here.
+// StateDirPath resolves the state directory: server.state_dir, else $XDG_STATE_HOME/autodoc, else
+// ~/.local/state/autodoc. The daemon's log lives here. It creates nothing: a mode that writes there
+// makes it (internal/endpoint).
 func (s Server) StateDirPath() (string, error) {
 	return xdgDir(s.StateDir, "XDG_STATE_HOME", filepath.Join(".local", "state"))
 }
@@ -309,8 +310,9 @@ func (s Server) StateDirPath() (string, error) {
 // StoreName is the store's file name in the data directory.
 const StoreName = "autodoc.db"
 
-// StorePath resolves the store, creating its directory 0700: server.data_dir, else
-// $XDG_DATA_HOME/autodoc, else ~/.local/share/autodoc, and autodoc.db in it. The store holds the
+// StorePath resolves the store: server.data_dir, else $XDG_DATA_HOME/autodoc, else
+// ~/.local/share/autodoc, and autodoc.db in it. It creates nothing: a mode that opens the store
+// makes its directory (internal/endpoint). The store holds the
 // workspaces, which nothing rebuilds, so it is data rather than state; it is never in a root.
 func (s Server) StorePath() (string, error) {
 	dir, err := xdgDir(s.DataDir, "XDG_DATA_HOME", filepath.Join(".local", "share"))
@@ -320,7 +322,7 @@ func (s Server) StorePath() (string, error) {
 	return filepath.Join(dir, StoreName), nil
 }
 
-// xdgDir is a configured directory, else $env/autodoc, else ~/fallback/autodoc, created 0700.
+// xdgDir is a configured directory, else $env/autodoc, else ~/fallback/autodoc.
 func xdgDir(configured, env, fallback string) (string, error) {
 	dir := configured
 	if dir == "" {
@@ -338,9 +340,6 @@ func xdgDir(configured, env, fallback string) (string, error) {
 		if dir, err = expandHome(dir); err != nil {
 			return "", err
 		}
-	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", fmt.Errorf("%w: creating %s: %w", ErrInvalid, dir, err)
 	}
 	return dir, nil
 }

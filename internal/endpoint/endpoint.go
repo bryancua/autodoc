@@ -84,13 +84,27 @@ func (e *Endpoints) MakeStateDir() error {
 	return makeDir(dir)
 }
 
-// MakeDataDir creates the store's directory, 0700, for a mode that opens the store.
+// MakeDataDir creates the store's directory, 0700, for a mode that opens the store, and has
+// SQLite's temporary files go beside it (TempBeside).
 func (e *Endpoints) MakeDataDir() error {
 	p, err := e.Store()
 	if err != nil {
 		return err
 	}
+	TempBeside(p)
 	return makeDir(filepath.Dir(p))
+}
+
+// TempBeside makes SQLite's temporary files (a VACUUM's copy among them) go beside the store at
+// path, never to the system's temp directory, which may be memory (tmpfs). SQLite's unix VFS reads
+// SQLITE_TMPDIR; the driver's C library takes its copy of the environment at the process's first
+// connection, so a mode sets it before it opens the store, and it is never changed under a running
+// connection (the deprecated temp_store_directory pragma would, process-wide). A value the user set
+// is kept. It is the process's, which is why core/store, which only opens the store, does not set it.
+func TempBeside(path string) {
+	if os.Getenv("SQLITE_TMPDIR") == "" {
+		_ = os.Setenv("SQLITE_TMPDIR", filepath.Dir(path))
+	}
 }
 
 func makeDir(dir string) error {

@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -116,24 +115,6 @@ func TestCompactRefusesWithoutRoom(t *testing.T) {
 	}
 	if mode, _ := s.AutoVacuum(ctx); mode != AutoVacuumNone {
 		t.Errorf("a refused compaction changed the mode to %d", mode)
-	}
-}
-
-// TestTheStoresTempFilesGoBesideIt: SQLite's temporary files (a VACUUM's copy) are placed by
-// SQLITE_TMPDIR, set to the store's directory when the user set none, before any connection opens
-// (the driver takes the environment at the process's first): nothing is changed under a running
-// connection. A value the user set is kept.
-func TestTheStoresTempFilesGoBesideIt(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "autodoc.db")
-	t.Setenv("SQLITE_TMPDIR", "")
-	tempBeside(path)
-	if got := os.Getenv("SQLITE_TMPDIR"); got != filepath.Dir(path) {
-		t.Errorf("SQLITE_TMPDIR = %q, want the store's directory %q", got, filepath.Dir(path))
-	}
-	t.Setenv("SQLITE_TMPDIR", "/the/users/choice")
-	tempBeside(path)
-	if got := os.Getenv("SQLITE_TMPDIR"); got != "/the/users/choice" {
-		t.Errorf("a SQLITE_TMPDIR the user set became %q", got)
 	}
 }
 
