@@ -260,17 +260,3 @@ func TestAResolvedLinkIsFollowedInABrowser(t *testing.T) {
 		t.Fatalf("the browser did not follow the link to the target: %s", out)
 	}
 }
-
-func TestWriteFileReplacesAtomically(t *testing.T) {
-	destination := filepath.Join(t.TempDir(), "page.html")
-	if err := export.WriteFile(destination, []byte("old")); err != nil {
-		t.Fatal(err)
-	}
-	if err := export.WriteFile(destination, []byte("new")); err != nil {
-		t.Fatal(err)
-	}
-	content, err := os.ReadFile(destination)
-	if err != nil || string(content) != "new" {
-		t.Fatalf("written = %q, %v", content, err)
-	}
-}

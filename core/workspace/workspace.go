@@ -4,8 +4,10 @@
 package workspace
 
 import (
+	"context"
+	"errors"
 	"fmt"
-	"os"
+	"io/fs"
 
 	"github.com/yongjohnlee80/golib/errs"
 	"github.com/yongjohnlee80/golib/vfs"
@@ -25,14 +27,19 @@ type Workspace struct {
 	Matcher Matcher
 }
 
-// Open opens the workspace's root with the local driver.
-func Open(cfg config.Workspace) (*Workspace, error) {
-	if fi, err := os.Stat(cfg.Root); err != nil || !fi.IsDir() {
-		return nil, fmt.Errorf("workspace %q: %s: %w", cfg.Name, cfg.Root, ErrNotADirectory)
-	}
+// Open opens the workspace's root with the local driver; a root that is not a directory is
+// ErrNotADirectory.
+func Open(ctx context.Context, cfg config.Workspace) (*Workspace, error) {
 	fsys, err := local.New(cfg.Root)
-	if err != nil {
+	switch {
+	case errors.Is(err, fs.ErrPermission): // a directory it may not open is not a missing one
 		return nil, fmt.Errorf("workspace %q: opening root %s: %w", cfg.Name, cfg.Root, err)
+	case err != nil: // gone, or a file
+		return nil, fmt.Errorf("workspace %q: %s: %w: %w", cfg.Name, cfg.Root, ErrNotADirectory, err)
+	}
+	if fi, err := fsys.Stat(ctx, "."); err != nil || !fi.IsDir() {
+		_ = fsys.Close()
+		return nil, fmt.Errorf("workspace %q: %s: %w", cfg.Name, cfg.Root, ErrNotADirectory)
 	}
 	return &Workspace{Name: cfg.Name, Root: cfg.Root, FS: fsys, Matcher: NewMatcher(cfg.Include, cfg.Exclude)}, nil
 }

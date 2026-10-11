@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/yongjohnlee80/autodoc/core/export"
+	"github.com/yongjohnlee80/autodoc/internal/localfs"
 )
 
 // openDefaultApp hands path to the desktop's default app for its kind (an HTML file to the
@@ -83,7 +84,7 @@ func htmlPreviewFile(content []byte) (string, error) {
 		return "", err
 	}
 	path := filepath.Join(directory, fmt.Sprintf("%x.html", sha256.Sum256(content)))
-	if err := export.WriteFile(path, content); err != nil {
+	if err := localfs.WriteFile(context.Background(), path, content); err != nil {
 		return "", err
 	}
 	return path, nil

@@ -251,7 +251,7 @@ func (m *Workspaces) start(id int64, c config.Workspace) (*served, error) {
 	text := m.textExtensionsFor(id)
 	text.store(stored)
 	m.noteCollisions(id, c.Name, stored)
-	ws, err := workspace.Open(c)
+	ws, err := workspace.Open(m.ctx, c)
 	if err != nil {
 		return nil, err
 	}
@@ -459,7 +459,7 @@ func (m *Workspaces) SetPatterns(ctx context.Context, name string, include, excl
 		return fmt.Errorf("%w: %s", store.ErrNoWorkspace, name)
 	}
 	candidate := config.Workspace{Name: name, Root: old.root, Include: include, Exclude: exclude}
-	if err := checkRoot(candidate); err != nil {
+	if err := checkRoot(ctx, candidate); err != nil {
 		return err
 	}
 	if err := m.db.SetWorkspacePatterns(ctx, old.id, include, exclude); err != nil {
@@ -603,7 +603,7 @@ func (m *Workspaces) Add(ctx context.Context, c config.Workspace) (rpc.Workspace
 		return nil, fmt.Errorf("%w: %s", store.ErrTaken, c.Name)
 	}
 	// the root is checked before anything is recorded: a workspace is never stored unservable
-	if err := checkRoot(c); err != nil {
+	if err := checkRoot(ctx, c); err != nil {
 		return nil, err
 	}
 	row, err := m.db.AddWorkspace(ctx, c.Name, c.Root, c.Include, c.Exclude)
@@ -624,8 +624,8 @@ func (m *Workspaces) Add(ctx context.Context, c config.Workspace) (rpc.Workspace
 	return s.view, nil
 }
 
-func checkRoot(c config.Workspace) error {
-	ws, err := workspace.Open(c)
+func checkRoot(ctx context.Context, c config.Workspace) error {
+	ws, err := workspace.Open(ctx, c)
 	if err != nil {
 		return err
 	}
