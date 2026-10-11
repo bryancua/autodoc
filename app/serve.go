@@ -25,6 +25,7 @@ import (
 	"github.com/yongjohnlee80/autodoc/core/module"
 	"github.com/yongjohnlee80/autodoc/core/store"
 	"github.com/yongjohnlee80/autodoc/core/todo"
+	"github.com/yongjohnlee80/autodoc/core/todo/sqlitejournal"
 	serving "github.com/yongjohnlee80/autodoc/internal/daemon"
 	"github.com/yongjohnlee80/autodoc/internal/endpoint"
 	"github.com/yongjohnlee80/autodoc/rpc"
@@ -229,7 +230,7 @@ func (d *process) buildServer() error {
 	b, db := d.b, d.db
 	d.srv = rpc.New(d.ws, b.version, rpc.WithListener(d.ln), rpc.WithLogger(d.log), rpc.WithPreferences(db), rpc.WithEmbeddings(d.emb), rpc.WithEvents(db),
 		rpc.WithRegistrations(b.reg.Tables()), rpc.WithRankers(d.ranking), rpc.WithStoreID(d.storeID), rpc.WithFiles(d.files),
-		rpc.WithModules(modules(&moduleDeps{store: db, workspaces: d.ws, journal: db.TodoJournal(), log: d.log})...))
+		rpc.WithModules(modules(&moduleDeps{store: db, workspaces: d.ws, journal: sqlitejournal.New(db), log: d.log})...))
 	li := store.LeaseInfo{StoreID: d.storeID, StorePath: d.p.Store, Addr: d.p.Socket, PID: int64(os.Getpid()), Instance: d.srv.Instance(),
 		Version: b.version, Protocol: rpc.Protocol, MinProtocol: rpc.MinProtocol, Since: time.Now().UTC()}
 	if err := store.WriteLeaseInfo(d.p.Store, li); err != nil {

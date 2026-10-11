@@ -26,7 +26,8 @@ The daemon never pushes: clients poll `sys.events` (and, for todos, `todos.chang
 | `core/schema` | frontmatter schemas: the KB's `schema.yaml` and the todo formats |
 | `core/docs` | versioned, conditional reads and writes of a workspace's files over a `vfs.FS` |
 | `core/index` | the indexer, links, graph, search |
-| `core/store` | the SQLite store: lease, migrations, the tables, the todo journal |
+| `core/store` | the SQLite store: lease, migrations, its tables, and the seam a module declares its own through |
+| `core/todo/sqlitejournal` | the todo system's Journal on the store, its tables declared through the seam |
 | `core/follow` | watching and polling a workspace |
 | `core/kind`, `registrations`, `derived` | file kinds, chunkers, derivers |
 | `core/config`, `workspace`, `outline`, `export`, `edition`, `pgstore` | as named |
@@ -122,8 +123,14 @@ func (t *todos) Commands() map[string]decl.HandlerFunc { … } // its App.* comm
 
 One SQLite file (`autodoc.db`), one writer connection. Migrations are
 `sql/deployments/sqlite/0000NN_update_*.sql` with their `_revert_` pairs, listed in
-`docs/ops/schema-scripts.md`. A module's tables are declared in `core/store` today
-(`todojournal.go`); a table-registration seam is follow-up 3/7.
+`docs/ops/schema-scripts.md`. Released scripts never change: their digests are pinned in tests.
+
+A module declares its own tables through the store's seam, `store.Declare` (`core/store/declare.go`):
+at its package's init, the module names a build function for its dao schemas. Every store builds
+every declaration when it opens, for its writer and its readers, and the list is frozen then. The
+tables themselves are the migrations'. The todo journal (`core/todo/sqlitejournal`) is the first to
+declare its tables this way. That package joins core/todo and core/store, so neither imports the
+other.
 
 ## 6. Protocol and versioning
 

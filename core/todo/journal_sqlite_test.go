@@ -11,6 +11,7 @@ import (
 
 	"github.com/yongjohnlee80/autodoc/core/store"
 	"github.com/yongjohnlee80/autodoc/core/todo"
+	"github.com/yongjohnlee80/autodoc/core/todo/sqlitejournal"
 	"github.com/yongjohnlee80/autodoc/core/todo/todotest"
 )
 
@@ -45,7 +46,7 @@ func TestTheSuitesOnTheSQLiteJournal(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = s.Close() })
-		return s.TodoJournal()
+		return sqlitejournal.New(s)
 	}
 	t.Cleanup(func() { newJournal = inMemory })
 	for _, suite := range sqliteSuites {
