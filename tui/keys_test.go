@@ -143,6 +143,10 @@ func TestTheRegistryRefusesKeysThatDoNotFit(t *testing.T) {
 			keys: []Key{{Seq: "F6", Opens: "subCard"}}},
 		"whose Backspace goes back to the Window's": {cards: []Card{{ID: "subCard", View: "SubCard"}},
 			keys: []Key{{Card: leader, Seq: "Shift+Y", Opens: "subCard"}}},
+		"goes back to the card missing, which is not declared": {cards: []Card{{ID: "subCard", View: "SubCard", Back: "missing"}},
+			keys: []Key{{Card: leader, Seq: "Shift+Y", Opens: "subCard"}}},
+		"subCard's Backspace is taken twice": {cards: []Card{{ID: "subCard", View: "SubCard", Back: leader}},
+			keys: []Key{{Card: leader, Seq: "Shift+Y", Opens: "subCard"}, {Card: "subCard", Seq: "z", Also: []string{"Backspace"}, Run: "App.x()"}}},
 	} {
 		f.fake = fake{name: "b"}
 		if _, err := newRegistry(f); err == nil || !strings.Contains(err.Error(), want) {
