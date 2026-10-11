@@ -89,26 +89,26 @@ func (x *Indexer) Revalidate(ctx context.Context) error {
 
 // replaceFrontmatter replaces a document's facets and diagnostics with r's.
 func (s *Store) replaceFrontmatter(tx *store.Tx, docID int64, r schema.Result) error {
-	if err := s.sc.Facets(tx).With(store.FacetDoc, docID).Delete(); err != nil {
+	if err := s.facets(tx).With(FacetDoc, docID).Delete(); err != nil {
 		return err
 	}
-	if err := s.sc.Diagnostics(tx).With(store.DiagDoc, docID).Delete(); err != nil {
+	if err := s.diagnostics(tx).With(DiagDoc, docID).Delete(); err != nil {
 		return err
 	}
 	if len(r.Facets) > 0 {
-		b := s.sc.FacetBatch(tx).SkipConflicts() // a list may repeat an item
+		b := s.facetBatch(tx).SkipConflicts() // a list may repeat an item
 		for _, f := range r.Facets {
-			b.Add(map[store.FacetField]any{store.FacetDoc: docID, store.FacetName: f.Field, store.FacetValue: f.Value})
+			b.Add(map[FacetField]any{FacetDoc: docID, FacetName: f.Field, FacetValue: f.Value})
 		}
 		if err := b.Flush(); err != nil {
 			return err
 		}
 	}
 	if len(r.Diagnostics) > 0 {
-		b := s.sc.DiagnosticBatch(tx)
+		b := s.diagnosticBatch(tx)
 		for i, d := range r.Diagnostics {
-			b.Add(map[store.DiagnosticField]any{store.DiagDoc: docID, store.DiagOrd: int64(i), store.DiagField: d.Field,
-				store.DiagLine: int64(d.Line), store.DiagRule: d.Rule, store.DiagMessage: d.Message})
+			b.Add(map[DiagnosticField]any{DiagDoc: docID, DiagOrd: int64(i), DiagField: d.Field,
+				DiagLine: int64(d.Line), DiagRule: d.Rule, DiagMessage: d.Message})
 		}
 		if err := b.Flush(); err != nil {
 			return err
@@ -117,8 +117,8 @@ func (s *Store) replaceFrontmatter(tx *store.Tx, docID int64, r schema.Result) e
 	return nil
 }
 
-func countDiagnosed(d dao.DAO[*store.Diagnostic, store.DiagnosticField, int64]) (int64, error) {
-	n, err := dao.CountDistinct(d, store.DiagDoc)
+func countDiagnosed(d dao.DAO[*Diagnostic, DiagnosticField, int64]) (int64, error) {
+	n, err := dao.CountDistinct(d, DiagDoc)
 	return int64(n), err
 }
 
@@ -126,8 +126,8 @@ func countDiagnosed(d dao.DAO[*store.Diagnostic, store.DiagnosticField, int64]) 
 func (s *Store) Diagnostics(ctx context.Context, path string) ([]schema.Diagnostic, error) {
 	var out []schema.Diagnostic
 	err := s.read(ctx, func(tx *store.Tx) error {
-		rows, err := s.sc.Diagnostics(tx).Join(store.JoinDocument).WithPredicate(dao.Eq(`"document"."path"`, path)).
-			OrderBy(dao.Asc(store.DiagByPath)).Select(store.DiagField, store.DiagLine, store.DiagRule, store.DiagMessage)
+		rows, err := s.diagnostics(tx).Join(JoinDocument).WithPredicate(dao.Eq(`"document"."path"`, path)).
+			OrderBy(dao.Asc(DiagByPath)).Select(DiagField, DiagLine, DiagRule, DiagMessage)
 		for _, r := range rows {
 			out = append(out, schema.Diagnostic{Field: r.Field, Line: int(r.Line), Rule: r.Rule, Message: r.Message})
 		}

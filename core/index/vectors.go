@@ -43,7 +43,7 @@ func hashParts(hashes [][]byte) func(yield func([]any) bool) {
 func (s *Store) referencedTexts(tx *store.Tx, hashes [][]byte) (map[string]bool, error) {
 	out := make(map[string]bool, len(hashes))
 	for part := range hashParts(hashes) {
-		rows, err := dao.SelectDistinct(s.sc.Chunks(tx).With(store.ChunkTextHash, part...), store.ChunkTextHash)
+		rows, err := dao.SelectDistinct(s.chunks(tx).With(ChunkTextHash, part...), ChunkTextHash)
 		if err != nil {
 			return nil, err
 		}
@@ -82,7 +82,7 @@ func (s *Store) dropOrphans(tx *store.Tx, hashes [][]byte) (int, error) {
 		return 0, err
 	}
 	for part := range hashParts(gone) {
-		if err := s.sc.Embeddings(tx).With(store.EmbTextHash, part...).Delete(); err != nil {
+		if err := s.embeddings(tx).With(EmbTextHash, part...).Delete(); err != nil {
 			return 0, err
 		}
 	}
@@ -111,11 +111,11 @@ func (s *Store) sweepOrphans(ctx context.Context, write writeFn) (int, error) {
 		for {
 			var examined int
 			err := write(ctx, func(_ context.Context, tx *store.Tx) error {
-				q := s.sc.Embeddings(tx).With(store.EmbModel, fp)
+				q := s.embeddings(tx).With(EmbModel, fp)
 				if cursor != nil {
 					q = q.WithPredicate(dao.Gt(`"embedding"."text_hash"`, cursor))
 				}
-				keys, err := q.OrderBy(dao.Asc(store.ByKey)).Limit(orphanBatch).Select(store.EmbTextHash)
+				keys, err := q.OrderBy(dao.Asc(byKey)).Limit(orphanBatch).Select(EmbTextHash)
 				if err != nil || len(keys) == 0 {
 					return err
 				}
@@ -129,7 +129,7 @@ func (s *Store) sweepOrphans(ctx context.Context, write writeFn) (int, error) {
 					return err
 				}
 				for part := range hashParts(gone) {
-					if err := s.sc.Embeddings(tx).With(store.EmbModel, fp).With(store.EmbTextHash, part...).Delete(); err != nil {
+					if err := s.embeddings(tx).With(EmbModel, fp).With(EmbTextHash, part...).Delete(); err != nil {
 						return err
 					}
 				}

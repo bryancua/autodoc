@@ -452,7 +452,7 @@ func TestABatchsReadinessLooksUpOnlyItsTexts(t *testing.T) {
 			if err := s.setReady(tx, docs); err != nil {
 				return err
 			}
-			rows, err := s.sc.Documents(tx).Select(store.DocID, store.DocPath, store.DocSemanticReady)
+			rows, err := s.documents(tx).Select(DocID, DocPath, DocSemanticReady)
 			if err != nil {
 				return err
 			}

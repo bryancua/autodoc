@@ -318,14 +318,7 @@ func TestConfigure_TheAbstractChunkRebuildsTheMarkdown(t *testing.T) {
 	}
 	id := mustID(t, m, "kb")
 	eventually(t, "a.md indexed with the abstract chunk", func() bool {
-		var version string
-		err := db.Read(context.Background(), func(tx *store.Tx) error {
-			d, err := db.Workspace(id).Documents(tx).With(store.DocPath, "a.md").Get(store.DocIndexer)
-			if err == nil {
-				version = d.Indexer
-			}
-			return err
-		})
+		version, _, err := index.NewStore(db, id).Identity(context.Background(), "a.md")
 		got, perr := index.ParseIdentity(version)
 		return err == nil && perr == nil && got.Abstract == "a1"
 	})

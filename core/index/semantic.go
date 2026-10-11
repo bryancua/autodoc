@@ -246,7 +246,7 @@ func (s *Store) setReady(tx *store.Tx, docs []int64) error {
 	}
 	all := docs == nil
 	if all {
-		all, err := s.sc.Documents(tx).Select(store.DocID)
+		all, err := s.documents(tx).Select(DocID)
 		if err != nil {
 			return err
 		}
@@ -262,9 +262,9 @@ func (s *Store) setReady(tx *store.Tx, docs []int64) error {
 	if fp == "" {
 		unready = docs
 	} else {
-		var chunks []*store.Chunk
+		var chunks []*Chunk
 		for part := range inParts(docs) {
-			rows, err := alive(s.sc.Chunks(tx)).With(store.ChunkDoc, part...).Select(store.ChunkDoc, store.ChunkTextHash)
+			rows, err := alive(s.chunks(tx)).With(ChunkDoc, part...).Select(ChunkDoc, ChunkTextHash)
 			if err != nil {
 				return err
 			}
@@ -303,7 +303,7 @@ func (s *Store) setReady(tx *store.Tx, docs []int64) error {
 	}
 	for v, ids := range map[int64][]int64{1: ready, 0: unready} {
 		for part := range inParts(ids) {
-			if err := s.sc.Documents(tx).With(store.DocID, part...).Set(store.DocSemanticReady, v).Update(); err != nil {
+			if err := s.documents(tx).With(DocID, part...).Set(DocSemanticReady, v).Update(); err != nil {
 				return err
 			}
 		}
@@ -319,7 +319,7 @@ var readinessLookups = inPart
 func (s *Store) embeddedAmong(tx *store.Tx, fp string, hashes [][]byte) (map[string]bool, error) {
 	out := make(map[string]bool, len(hashes))
 	for part := range hashParts(hashes) {
-		rows, err := s.sc.Embeddings(tx).With(store.EmbModel, fp).With(store.EmbTextHash, part...).Select(store.EmbTextHash)
+		rows, err := s.embeddings(tx).With(EmbModel, fp).With(EmbTextHash, part...).Select(EmbTextHash)
 		if err != nil {
 			return nil, err
 		}
@@ -332,7 +332,7 @@ func (s *Store) embeddedAmong(tx *store.Tx, fp string, hashes [][]byte) (map[str
 
 // embeddedTexts is the set of text hashes with a vector under model fp.
 func (s *Store) embeddedTexts(tx *store.Tx, fp string) (map[string]bool, error) {
-	rows, err := s.sc.Embeddings(tx).With(store.EmbModel, fp).Select(store.EmbTextHash)
+	rows, err := s.embeddings(tx).With(EmbModel, fp).Select(EmbTextHash)
 	if err != nil {
 		return nil, err
 	}
@@ -387,10 +387,10 @@ func (x *Indexer) commitVectors(ctx context.Context, vb vecBatch) error {
 			return err
 		}
 		if len(items) > 0 {
-			b := s.sc.EmbeddingBatch(tx).SkipConflicts()
+			b := s.embeddingBatch(tx).SkipConflicts()
 			for _, it := range items {
-				b.Add(map[store.EmbeddingField]any{store.EmbTextHash: it.textHash, store.EmbModel: vb.fp,
-					store.EmbBits: vector.EncodeBits(vector.SignBits(it.vec)), store.EmbF32: vector.EncodeFloats(it.vec)})
+				b.Add(map[EmbeddingField]any{EmbTextHash: it.textHash, EmbModel: vb.fp,
+					EmbBits: vector.EncodeBits(vector.SignBits(it.vec)), EmbF32: vector.EncodeFloats(it.vec)})
 			}
 			if err := b.Flush(); err != nil {
 				return err
@@ -478,7 +478,7 @@ func (s *Store) docsWithText(tx *store.Tx, items []vecItem) ([]int64, error) {
 	}
 	// not SELECT DISTINCT doc_id: without statistics SQLite would take chunk_doc for its order, and
 	// scan the workspace's chunks; a plain select looks each text up in chunk_text (ADR 1791329335)
-	rows, err := s.sc.Chunks(tx).With(store.ChunkTextHash, hashes...).Select(store.ChunkDoc)
+	rows, err := s.chunks(tx).With(ChunkTextHash, hashes...).Select(ChunkDoc)
 	if err != nil {
 		return nil, err
 	}
@@ -508,7 +508,7 @@ func (s *Store) pendingUnrefused(tx *store.Tx, fp string, skip map[string]bool) 
 	if err != nil {
 		return 0, err
 	}
-	rows, err := alive(s.sc.Chunks(tx)).Select(store.ChunkTextHash)
+	rows, err := alive(s.chunks(tx)).Select(ChunkTextHash)
 	if err != nil {
 		return 0, err
 	}
@@ -533,7 +533,7 @@ func (s *Store) textCoverage(tx *store.Tx, fps ...string) (total int64, missing 
 			return 0, nil, err
 		}
 	}
-	rows, err := alive(s.sc.Chunks(tx)).Select(store.ChunkTextHash)
+	rows, err := alive(s.chunks(tx)).Select(ChunkTextHash)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -596,26 +596,26 @@ func (x *Indexer) publish(ctx context.Context, changed []int64) error {
 
 // withVectors narrows an alive-chunk query to the chunks of ready documents that have a vector
 // under model fp, joining the vector.
-func withVectors(d dao.DAO[*store.Chunk, store.ChunkField, int64], fp string) dao.DAO[*store.Chunk, store.ChunkField, int64] {
-	return d.Join(store.JoinEmbedding).WithPredicate(dao.Eq(`"embedding"."model_fp"`, fp)).WithPredicate(dao.Eq(`"document"."semantic_ready"`, 1))
+func withVectors(d dao.DAO[*Chunk, ChunkField, int64], fp string) dao.DAO[*Chunk, ChunkField, int64] {
+	return d.Join(JoinEmbedding).WithPredicate(dao.Eq(`"embedding"."model_fp"`, fp)).WithPredicate(dao.Eq(`"document"."semantic_ready"`, 1))
 }
 
 // loadCodes reads the codes of the alive chunks of ready documents under model fp: of docs, or of
 // every document when docs is nil.
 func (s *Store) loadCodes(tx *store.Tx, fp string, docs []int64) (map[int64][]code, error) {
 	out := map[int64][]code{}
-	add := func(d dao.DAO[*store.Chunk, store.ChunkField, int64]) error {
-		rows, err := withVectors(alive(d), fp).Select(store.ChunkDoc, store.ChunkID, store.ChunkEmbBits)
+	add := func(d dao.DAO[*Chunk, ChunkField, int64]) error {
+		rows, err := withVectors(alive(d), fp).Select(ChunkDoc, ChunkID, ChunkEmbBits)
 		for _, r := range rows {
 			out[r.DocID] = append(out[r.DocID], code{Chunk: r.ID, Bits: vector.DecodeBits(r.EmbBits)})
 		}
 		return err
 	}
 	if docs == nil {
-		return out, add(s.sc.Chunks(tx))
+		return out, add(s.chunks(tx))
 	}
 	for part := range inParts(docs) {
-		if err := add(s.sc.Chunks(tx).With(store.ChunkDoc, part...)); err != nil {
+		if err := add(s.chunks(tx).With(ChunkDoc, part...)); err != nil {
 			return nil, err
 		}
 	}
@@ -845,9 +845,9 @@ func (s *Store) unembedded(ctx context.Context, fp string, skip map[string]bool)
 		seen := map[string]bool{}
 		var after int64
 		for len(texts) < embedBatch {
-			rows, err := alive(s.sc.Chunks(tx)).WithPredicate(dao.Gt(`"chunk"."id"`, after)).
-				OrderBy(dao.Asc(store.ChunkByID)).Limit(inPart).
-				Select(store.ChunkID, store.ChunkTextHash, store.ChunkBreadcrumb, store.ChunkBody, store.ChunkEmbed)
+			rows, err := alive(s.chunks(tx)).WithPredicate(dao.Gt(`"chunk"."id"`, after)).
+				OrderBy(dao.Asc(ChunkByID)).Limit(inPart).
+				Select(ChunkID, ChunkTextHash, ChunkBreadcrumb, ChunkBody, ChunkEmbed)
 			if err != nil {
 				return err
 			}
@@ -905,7 +905,7 @@ func (x *Indexer) Models(ctx context.Context) ([]ModelInfo, error) {
 			return err
 		}
 		for _, r := range rows {
-			count, err := s.sc.Embeddings(tx).With(store.EmbModel, r.FP).Count()
+			count, err := s.embeddings(tx).With(EmbModel, r.FP).Count()
 			if err != nil {
 				return err
 			}
@@ -995,15 +995,15 @@ func (s *Store) semanticHits(tx *store.Tx, m *semantic, fp string, qvec []float3
 		for i, id := range ids {
 			in[i] = id
 		}
-		d, ok, err := s.filtered(tx, withVectors(alive(s.sc.Chunks(tx)), fp).With(store.ChunkID, in...), opts)
+		d, ok, err := s.filtered(tx, withVectors(alive(s.chunks(tx)), fp).With(ChunkID, in...), opts)
 		if err != nil {
 			return nil, err
 		}
 		if !ok {
 			return nil, vector.SkipRest // no document has every filter: no window can hold a hit
 		}
-		rows, err := d.Select(store.ChunkDoc, store.ChunkOrd, store.ChunkDocPath, store.ChunkBreadcrumb, store.ChunkByteStart,
-			store.ChunkByteEnd, store.ChunkDocActiveGen, store.ChunkBody, store.ChunkEmbF32)
+		rows, err := d.Select(ChunkDoc, ChunkOrd, ChunkDocPath, ChunkBreadcrumb, ChunkByteStart,
+			ChunkByteEnd, ChunkDocActiveGen, ChunkBody, ChunkEmbF32)
 		if err != nil {
 			return nil, fmt.Errorf("index: semantic search: %w", err)
 		}
@@ -1136,8 +1136,8 @@ func (x *Indexer) refusedTexts(ctx context.Context, fp, onlyHash string) ([]Refu
 				break
 			}
 			checked++
-			rows, err := alive(x.store.sc.Chunks(tx)).Join(store.JoinDocument).With(store.ChunkTextHash, []byte(hash)).
-				Limit(20-uint64(len(out))).Select(store.ChunkDocPath, store.ChunkBreadcrumb)
+			rows, err := alive(x.store.chunks(tx)).Join(JoinDocument).With(ChunkTextHash, []byte(hash)).
+				Limit(20-uint64(len(out))).Select(ChunkDocPath, ChunkBreadcrumb)
 			if err != nil {
 				return err
 			}

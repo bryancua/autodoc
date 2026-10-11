@@ -87,11 +87,11 @@ func (s *Store) statusSnap(ctx context.Context, fp string, between func()) (stat
 			between()
 		}
 		if fp == "" {
-			n, err := alive(s.sc.Chunks(tx)).Count()
+			n, err := alive(s.chunks(tx)).Count()
 			out.st.Chunks = int64(n)
 			return err
 		}
-		rows, err := alive(s.sc.Chunks(tx)).Select(store.ChunkTextHash)
+		rows, err := alive(s.chunks(tx)).Select(ChunkTextHash)
 		if err != nil {
 			return err
 		}
@@ -111,7 +111,7 @@ func (s *Store) statusSnap(ctx context.Context, fp string, between func()) (stat
 			}
 		}
 		out.texts = int64(len(texts))
-		out.unready, err = s.sc.Documents(tx).With(store.DocSemanticReady, int64(0)).Exists()
+		out.unready, err = s.documents(tx).With(DocSemanticReady, int64(0)).Exists()
 		return err
 	})
 	return out, err

@@ -116,7 +116,7 @@ func (s *Store) outdated(ctx context.Context, want func(path string, tokens int)
 		return nil, err
 	}
 	err = s.read(ctx, func(tx *store.Tx) error {
-		docs, err := s.sc.Documents(tx).OrderBy(dao.Asc(store.ByPath)).Select(store.DocPath, store.DocIndexer)
+		docs, err := s.documents(tx).OrderBy(dao.Asc(byPath)).Select(DocPath, DocIndexer)
 		for _, d := range docs {
 			if d.Indexer != want(d.Path, tokens) {
 				out = append(out, d.Path)
@@ -133,7 +133,7 @@ func (s *Store) outdated(ctx context.Context, want func(path string, tokens int)
 func (s *Store) Version(ctx context.Context, path string) (vfs.Version, bool, error) {
 	var v string
 	err := s.read(ctx, func(tx *store.Tx) error {
-		d, err := s.sc.Documents(tx).With(store.DocPath, path).Get(store.DocVersion)
+		d, err := s.documents(tx).With(DocPath, path).Get(DocVersion)
 		if err == nil {
 			v = d.Version
 		}
@@ -149,11 +149,11 @@ func (s *Store) Version(ctx context.Context, path string) (vfs.Version, bool, er
 func (s *Store) PathsUnder(ctx context.Context, dir string) ([]string, error) {
 	var out []string
 	err := s.read(ctx, func(tx *store.Tx) error {
-		d := s.sc.Documents(tx)
+		d := s.documents(tx)
 		if dir != "." {
 			d = d.WithPredicate(under(`"document"."path"`, dir))
 		}
-		docs, err := d.OrderBy(dao.Asc(store.ByPath)).Select(store.DocPath)
+		docs, err := d.OrderBy(dao.Asc(byPath)).Select(DocPath)
 		for _, x := range docs {
 			out = append(out, x.Path)
 		}
@@ -182,8 +182,8 @@ func (s *Store) List(ctx context.Context, after string, limit int) ([]DocInfo, b
 	}
 	var out []DocInfo
 	err := s.read(ctx, func(tx *store.Tx) error {
-		docs, err := s.sc.Documents(tx).WithPredicate(dao.Gt(`"document"."path"`, after)).
-			OrderBy(dao.Asc(store.ByPath)).Limit(uint64(limit+1)).Select(store.DocPath, store.DocActiveGen, store.DocVersion)
+		docs, err := s.documents(tx).WithPredicate(dao.Gt(`"document"."path"`, after)).
+			OrderBy(dao.Asc(byPath)).Limit(uint64(limit+1)).Select(DocPath, DocActiveGen, DocVersion)
 		for _, d := range docs {
 			out = append(out, DocInfo{Path: d.Path, Generation: d.ActiveGen, Version: d.Version})
 		}
@@ -223,8 +223,8 @@ func (s *Store) Changes(ctx context.Context, since int64, limit int) ([]Change, 
 		if since < oldest-1 {
 			return ErrCursorExpired
 		}
-		rows, err := s.sc.Changes(tx).WithPredicate(dao.Gt(`"change"."seq"`, since)).
-			OrderBy(dao.Asc(store.BySeq)).Limit(uint64(limit+1)).Select(store.ChangeSeq, store.ChangePath, store.ChangeOp, store.ChangeGeneration)
+		rows, err := s.changes(tx).WithPredicate(dao.Gt(`"change"."seq"`, since)).
+			OrderBy(dao.Asc(bySeq)).Limit(uint64(limit+1)).Select(ChangeSeq, ChangePath, ChangeOp, ChangeGeneration)
 		for _, c := range rows {
 			out = append(out, Change{Seq: c.Seq, Path: c.Path, Op: c.Op, Generation: c.Generation})
 		}
@@ -255,7 +255,7 @@ func (s *Store) head(tx *store.Tx) (int64, error) {
 
 // oldestRetained is the oldest change seq still in the log; with none retained, head + 1.
 func (s *Store) oldestRetained(tx *store.Tx) (int64, error) {
-	c, err := s.sc.Changes(tx).OrderBy(dao.Asc(store.BySeq)).Get(store.ChangeSeq)
+	c, err := s.changes(tx).OrderBy(dao.Asc(bySeq)).Get(ChangeSeq)
 	if errors.Is(err, dao.ErrNoRows) {
 		h, err := s.head(tx)
 		return h + 1, err
@@ -275,8 +275,8 @@ func (s *Store) logChange(tx *store.Tx, path, op string, gen, at int64) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.sc.Changes(tx).Set(store.ChangeSeq, seq).Set(store.ChangePath, path).Set(store.ChangeOp, op).
-		Set(store.ChangeGeneration, gen).Set(store.ChangeAt, at).Insert()
+	_, err = s.changes(tx).Set(ChangeSeq, seq).Set(ChangePath, path).Set(ChangeOp, op).
+		Set(ChangeGeneration, gen).Set(ChangeAt, at).Insert()
 	return err
 }
 
@@ -319,7 +319,7 @@ func (s *Store) Status(ctx context.Context) (Status, error) {
 		if err := s.logBounds(tx, &st); err != nil {
 			return err
 		}
-		n, err := alive(s.sc.Chunks(tx)).Count()
+		n, err := alive(s.chunks(tx)).Count()
 		if err != nil {
 			return err
 		}
@@ -343,28 +343,28 @@ func (s *Store) logBounds(tx *store.Tx, st *Status) error {
 // counts reads into st every count but the alive chunks': the documents, the jobs, the unparsed
 // frontmatter, the diagnosed and the failing jobs.
 func (s *Store) counts(tx *store.Tx, st *Status) error {
-	n, err := s.sc.Documents(tx).Count()
+	n, err := s.documents(tx).Count()
 	if err != nil {
 		return err
 	}
 	st.Docs = int64(n)
-	if n, err = s.sc.Jobs(tx).Count(); err != nil {
+	if n, err = s.jobs(tx).Count(); err != nil {
 		return err
 	}
 	st.PendingJobs = int64(n)
-	docs, err := s.sc.Documents(tx).WithPredicate(dao.IsNotNull(`"document"."frontmatter_error"`)).
-		OrderBy(dao.Asc(store.ByPath)).Select(store.DocPath)
+	docs, err := s.documents(tx).WithPredicate(dao.IsNotNull(`"document"."frontmatter_error"`)).
+		OrderBy(dao.Asc(byPath)).Select(DocPath)
 	if err != nil {
 		return err
 	}
 	for _, d := range docs {
 		st.UnparsedFrontmatter = append(st.UnparsedFrontmatter, d.Path)
 	}
-	if st.Diagnosed, err = countDiagnosed(s.sc.Diagnostics(tx)); err != nil {
+	if st.Diagnosed, err = countDiagnosed(s.diagnostics(tx)); err != nil {
 		return err
 	}
-	jobs, err := s.sc.Jobs(tx).WithPredicate(dao.IsNotNull(`"index_job"."last_error"`)).
-		OrderBy(dao.Asc(store.ByPath)).Select(store.JobPath, store.JobAttempts, store.JobLastError)
+	jobs, err := s.jobs(tx).WithPredicate(dao.IsNotNull(`"index_job"."last_error"`)).
+		OrderBy(dao.Asc(byPath)).Select(JobPath, JobAttempts, JobLastError)
 	for _, j := range jobs {
 		st.Failing = append(st.Failing, JobError{Path: j.Path, Attempts: int(j.Attempts), Err: deref(j.LastError)})
 	}
@@ -373,9 +373,9 @@ func (s *Store) counts(tx *store.Tx, st *Status) error {
 
 // alive narrows a chunk query to the chunks alive at their document's active generation: gen_from
 // <= active_gen, and gen_to NULL or past it. It joins the document.
-func alive[R any, ID any](d dao.DAO[R, store.ChunkField, ID]) dao.DAO[R, store.ChunkField, ID] {
+func alive[R any, ID any](d dao.DAO[R, ChunkField, ID]) dao.DAO[R, ChunkField, ID] {
 	active := dao.T("document", "active_gen")
-	return d.Join(store.JoinDocument).
+	return d.Join(JoinDocument).
 		WithPredicate(dao.Cmp(dao.T("chunk", "gen_from"), dao.OpLte, active)).
 		WithPredicate(dao.Or(dao.IsNull(`"chunk"."gen_to"`), dao.Cmp(dao.T("chunk", "gen_to"), dao.OpGt, active)))
 }

@@ -30,7 +30,7 @@ func (s *Store) successorsOf(ctx context.Context, paths []string) (map[string][]
 		in[i] = p
 	}
 	err := s.read(ctx, func(tx *store.Tx) error {
-		docs, err := s.sc.Documents(tx).With(store.DocPath, in...).Select(store.DocID, store.DocPath)
+		docs, err := s.documents(tx).With(DocPath, in...).Select(DocID, DocPath)
 		if err != nil {
 			return err
 		}
@@ -44,13 +44,13 @@ func (s *Store) successorsOf(ctx context.Context, paths []string) (map[string][]
 			return nil
 		}
 		// a listed document's own superseded_by, and a successor's supersedes naming a listed one
-		byOld, err := kindsIn(s.sc.LinksOut(tx), []string{kindSupersededBy}).With(store.LinkSrc, ids...).
-			WithPredicate(dao.IsNotNull(`"link"."dst_doc"`)).OrderBy(dao.Asc(store.LinkByID)).Select(store.LinkSrc, store.LinkDst)
+		byOld, err := kindsIn(s.linksOut(tx), []string{kindSupersededBy}).With(LinkSrc, ids...).
+			WithPredicate(dao.IsNotNull(`"link"."dst_doc"`)).OrderBy(dao.Asc(LinkByID)).Select(LinkSrc, LinkDst)
 		if err != nil {
 			return err
 		}
-		bySuccessor, err := kindsIn(s.sc.LinksOut(tx), []string{kindSupersedes}).With(store.LinkDst, ids...).
-			OrderBy(dao.Asc(store.LinkByID)).Select(store.LinkSrc, store.LinkDst)
+		bySuccessor, err := kindsIn(s.linksOut(tx), []string{kindSupersedes}).With(LinkDst, ids...).
+			OrderBy(dao.Asc(LinkByID)).Select(LinkSrc, LinkDst)
 		if err != nil {
 			return err
 		}
@@ -70,7 +70,7 @@ func (s *Store) successorsOf(ctx context.Context, paths []string) (map[string][]
 			}
 		}
 		if len(more) > 0 {
-			docs, err := s.sc.Documents(tx).With(store.DocID, more...).Select(store.DocID, store.DocPath)
+			docs, err := s.documents(tx).With(DocID, more...).Select(DocID, DocPath)
 			if err != nil {
 				return err
 			}
