@@ -57,9 +57,10 @@ type Harness struct {
 // doc is a document carrying every field.
 func doc(path, version, body string) index.Doc {
 	c := search.Chunk{Breadcrumb: "Title", Body: body, Ord: 0}
+	th := c.TextHash()
 	return index.Doc{Path: path, Version: vfs.Version(version), Indexer: "m1.t512.s0." + version,
 		Meta:   chunk.Meta{Title: "Title", Tags: []string{"alpha", "beta"}, Aliases: []string{"other name"}},
-		Chunks: []index.DocChunk{{Chunk: c, Hash: []byte("h-" + body), TextHash: []byte("t-" + body), Kind: index.ChunkSection}},
+		Chunks: []index.DocChunk{{Chunk: c, Hash: []byte("h-" + body), TextHash: th[:], Kind: index.ChunkSection}},
 		Links: []index.DocLink{{Raw: "[[b]]", Name: "b", Kind: index.LinkWikilink},
 			{Raw: "supersedes: c", Name: "c", Kind: "supersedes", Keys: []string{"c", "c.md"}}},
 		Frontmatter: schema.Result{Facets: []schema.Facet{{Field: "status", Value: "active"}},
@@ -100,7 +101,7 @@ func Run(t *testing.T, h Harness) {
 		if !reflect.DeepEqual(k.Tags, []string{"alpha", "beta"}) || !reflect.DeepEqual(k.Facets, map[string][]string{"status": {"active"}}) {
 			t.Errorf("tags %v, facets %v", k.Tags, k.Facets)
 		}
-		if len(k.Chunks) != 1 || k.Chunks[0].Body != "first text" || string(k.Chunks[0].TextHash) != "t-first text" {
+		if len(k.Chunks) != 1 || k.Chunks[0].Body != "first text" || string(k.Chunks[0].TextHash) != string(d.Chunks[0].TextHash) {
 			t.Errorf("chunks %+v", k.Chunks)
 		}
 		if len(k.Links) == 0 || k.Links[0] != "b" {

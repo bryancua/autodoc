@@ -154,7 +154,7 @@ func lexicalPaths(t testing.TB, s *Store, q string) []string {
 func TestPendingReturnsTheEmbedText(t *testing.T) {
 	conn := scratch(t)
 	ctx := context.Background()
-	s, err := Open(conn, "t")
+	s, err := New(conn, "t")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func TestPendingReturnsTheEmbedText(t *testing.T) {
 func TestIndexerRoundTripsVerbatim(t *testing.T) {
 	conn := scratch(t)
 	ctx := context.Background()
-	s, err := Open(conn, "t")
+	s, err := New(conn, "t")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +295,7 @@ func TestIndexerRoundTripsVerbatim(t *testing.T) {
 func TestEachPathCarriesItsOwnIndexer(t *testing.T) {
 	conn := scratch(t)
 	ctx := context.Background()
-	s, err := Open(conn, "t")
+	s, err := New(conn, "t")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +398,7 @@ func ragEnglishCells(t *testing.T, ownSchema bool) {
 	if err := Migrate(ctx, conn); err != nil {
 		t.Fatal(err)
 	}
-	s, err := Open(conn, "t")
+	s, err := New(conn, "t")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -458,11 +458,11 @@ func ragEnglishCells(t *testing.T, ownSchema bool) {
 func TestDropRemovesOneTenantOnly(t *testing.T) {
 	conn := scratch(t)
 	ctx := context.Background()
-	a, err := Open(conn, "tenant-a")
+	a, err := New(conn, "tenant-a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := Open(conn, "tenant-b")
+	b, err := New(conn, "tenant-b")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -658,7 +658,7 @@ func hashOf(text string) [32]byte {
 func TestPendingPagesPastEmbeddedChunks(t *testing.T) {
 	conn := scratch(t)
 	ctx := context.Background()
-	s, err := Open(conn, "t")
+	s, err := New(conn, "t")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -693,7 +693,7 @@ func TestPendingPagesPastEmbeddedChunks(t *testing.T) {
 func TestConcurrentPutsKeepGenerationsApart(t *testing.T) {
 	conn := scratch(t)
 	ctx := context.Background()
-	s, err := Open(conn, "t")
+	s, err := New(conn, "t")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -736,7 +736,7 @@ func TestConcurrentPutsKeepGenerationsApart(t *testing.T) {
 func TestMarkReadyRefusesAStaleVerdict(t *testing.T) {
 	conn := scratch(t)
 	ctx := context.Background()
-	s, err := Open(conn, "t")
+	s, err := New(conn, "t")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -768,4 +768,109 @@ func TestMarkReadyRefusesAStaleVerdict(t *testing.T) {
 		}
 		return nil
 	})
+}
+
+// Cell — a Batch is kept whole or not at all, and a Put that loses its compare-and-set to another
+// writer inside a batch writes again over the newer row; one that loses every time fails the batch.
+func TestABatchIsOneTransaction(t *testing.T) {
+	ctx := context.Background()
+	conn := scratch(t)
+	s, err := New(conn, "tenant")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := func(path, body string) Document {
+		return Document{Path: path, Version: body, Chunks: []search.Chunk{{Ord: 0, Breadcrumb: "b", Body: body}}}
+	}
+	version := func(path string) (string, bool) {
+		t.Helper()
+		docs, _, err := s.Docs(ctx, "", 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, d := range docs {
+			if d.Path == path {
+				return d.Version, true
+			}
+		}
+		return "", false
+	}
+
+	b := s.Begin(ctx)
+	if _, err := b.Put(ctx, doc("a.md", "one")); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := version("a.md"); ok {
+		t.Fatal("a rolled-back batch kept its document")
+	}
+	b = s.Begin(ctx)
+	for _, d := range []Document{doc("a.md", "one"), doc("b.md", "two")} {
+		if _, err := b.Put(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := b.Delete(ctx, "never.md"); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := version("b.md"); !ok || v != "two" {
+		t.Fatalf("b.md after the commit: %q %v", v, ok)
+	}
+
+	// another writer lands once between the batch's read and its write: the batch writes again
+	// the other writer's own Put runs the hook too: inside it, the hook does nothing
+	raced, inside := 0, false
+	putHook = func() {
+		if inside {
+			return
+		}
+		if raced++; raced == 1 {
+			inside = true
+			if _, err := s.Put(ctx, doc("a.md", "theirs")); err != nil {
+				t.Error(err)
+			}
+			inside = false
+		}
+	}
+	b = s.Begin(ctx)
+	if _, err := b.Put(ctx, doc("a.md", "ours")); err != nil {
+		putHook = nil
+		t.Fatalf("a Put that lost one race: %v", err)
+	}
+	putHook = nil
+	if err := b.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := version("a.md"); v != "ours" || raced < 2 {
+		t.Errorf("after one lost race: %q, %d reads; want ours, written again", v, raced)
+	}
+
+	// another writer lands every time: the batch fails, and keeps nothing
+	n := 0
+	putHook = func() {
+		if inside {
+			return
+		}
+		n++
+		inside = true
+		if _, err := s.Put(ctx, doc("a.md", fmt.Sprintf("theirs %d", n))); err != nil {
+			t.Error(err)
+		}
+		inside = false
+	}
+	b = s.Begin(ctx)
+	_, err = b.Put(ctx, doc("a.md", "never"))
+	putHook = nil
+	if !errors.Is(err, ErrWriteRace) {
+		t.Fatalf("a Put that loses every race: %v; want ErrWriteRace", err)
+	}
+	_ = b.Rollback()
+	if v, _ := version("a.md"); v == "never" {
+		t.Error("a failed batch kept its document")
+	}
 }

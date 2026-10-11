@@ -71,7 +71,7 @@ func put(t testing.TB, s *Store, d searchtest.Doc) {
 
 func openCorpus(t testing.TB, conn dao.DataConn, tenant string, docs []searchtest.Doc) *Store {
 	t.Helper()
-	s, err := Open(conn, tenant)
+	s, err := New(conn, tenant)
 	if err != nil {
 		t.Fatal(err)
 	}
