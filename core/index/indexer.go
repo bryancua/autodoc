@@ -457,6 +457,9 @@ func (x *Indexer) writer(ctx context.Context) error {
 			if err != nil && ctx.Err() != nil {
 				return ctx.Err()
 			}
+			if err != nil && commitFailed != nil {
+				commitFailed(err)
+			}
 			continue
 		case o := <-x.ops:
 			o.done <- x.runOp(ctx, o.ctx, o.fn)
@@ -792,7 +795,8 @@ func (s *Store) Identity(ctx context.Context, path string) (string, bool, error)
 
 // commit writes one batch in one transaction: the jobs touched since the last one, and the results
 // whose job has not been touched again since its worker claimed it.
-// commitFailed is called with each commit that failed, before its jobs are queued again. It is nil
+// commitFailed is called with each commit that failed, a batch's (before its jobs are queued
+// again) or a batch of vectors' (after its embedder is told). It is nil
 // in production: a test sets it, before any indexer runs, to know an injected failure was met
 // rather than slept past.
 var commitFailed func(error)

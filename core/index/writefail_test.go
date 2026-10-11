@@ -6,7 +6,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/yongjohnlee80/golib/search"
 
@@ -30,17 +29,26 @@ func (e *env) renamed(table string) (undo func()) {
 	return func() { e.exec(fmt.Sprintf(`ALTER TABLE "%s_aside" RENAME TO "%s"`, table, table)) }
 }
 
+// countRefusedCommits counts the commits an injected failure (failWrites) refuses, so a test waits
+// for the failure to be met instead of sleeping past it. Called before the test's env is made: its
+// reset runs after the env's cleanup has stopped the indexer.
+func countRefusedCommits(t *testing.T) *atomic.Int64 {
+	t.Helper()
+	var n atomic.Int64
+	commitFailed = func(err error) {
+		if strings.Contains(err.Error(), "injected failure") {
+			n.Add(1)
+		}
+	}
+	t.Cleanup(func() { commitFailed = nil })
+	return &n
+}
+
 // TestAFailedCommitWritesNothingAndIsRetried: when the writer's transaction fails (any table's
 // write refused), nothing of the batch is written, and its jobs run again: once the failure lifts,
 // every change lands.
 func TestAFailedCommitWritesNothingAndIsRetried(t *testing.T) {
-	var failed atomic.Int64 // commits the injected failure refused
-	commitFailed = func(err error) {
-		if strings.Contains(err.Error(), "injected failure") {
-			failed.Add(1)
-		}
-	}
-	t.Cleanup(func() { commitFailed = nil }) // after the env's own cleanup has stopped the indexer
+	failed := countRefusedCommits(t)
 	e := newEnv(t, options{})
 	e.put("keep.md", "---\ntags: [old]\n---\n# Keep\n\nfirst words [[other]]\n", "gone.md", "to be removed\n")
 	version := func(p string) string { v, _, _ := e.store.Version(context.Background(), p); return string(v) }
@@ -103,11 +111,13 @@ func TestAFailedCommitWritesNothingAndIsRetried(t *testing.T) {
 // TestAFailedVectorCommitIsRetried: vectors whose commit fails are not stored, and the document
 // stays not ready; once the failure lifts, the worker embeds again and the document becomes ready.
 func TestAFailedVectorCommitIsRetried(t *testing.T) {
+	failed := countRefusedCommits(t)
 	p := newFake("m", "a")
 	e := newEnv(t, options{Provider: p})
 	e.put("a.md", "zebra plains\n")
 	e.ready()
 	undo := e.failWrites("embedding", "INSERT")
+	before := failed.Load()
 	e.put("b.md", "hippo river\n")
 	e.eventually("b.md's text asked for", func() bool {
 		for _, s := range p.texts() {
@@ -117,7 +127,7 @@ func TestAFailedVectorCommitIsRetried(t *testing.T) {
 		}
 		return false
 	})
-	time.Sleep(100 * time.Millisecond)
+	e.eventually("b.md's vectors refused", func() bool { return failed.Load() > before })
 	var ready int
 	_ = scanOne(context.Background(), e.raw, &ready, "SELECT semantic_ready FROM document WHERE path = 'b.md'")
 	if ready != 0 {
