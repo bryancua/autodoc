@@ -239,7 +239,7 @@ func answer(ctx context.Context, st *Store, s searchers, q string, opts QueryOpt
 	}
 	out := Result{Hits: make([]Hit, len(res.Hits)), ModeUsed: string(res.ModeUsed), Semantic: string(res.Semantic)}
 	if res.SemanticError != "" {
-		out.SemanticError = ErrEmbedFailed.Error()
+		out.SemanticError = EmbedFailedMessage
 	}
 	for i, h := range res.Hits {
 		out.Hits[i] = Hit{Path: h.Path, Breadcrumb: h.Breadcrumb, Snippet: h.Snippet, Generation: h.Generation,

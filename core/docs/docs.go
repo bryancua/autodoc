@@ -30,7 +30,7 @@ var (
 	// ErrCommitted is a write that landed, then a follow-up step failed (Committed, -32066): the
 	// change took effect but no version can be promised. The client reads the document and compares;
 	// it never sends the write again.
-	ErrCommitted = errors.New("docs: the write landed, then a follow-up step failed")
+	ErrCommitted = errs.Sentinel(errs.ErrPrecondition, "docs: the write landed, then a follow-up step failed")
 
 	// ErrNotEligible is a path the workspace does not index (outside include, inside exclude):
 	// AutoDoc's apps edit files, not every file under the root.
@@ -302,7 +302,7 @@ func (d *Docs) Remove(ctx context.Context, path string, want vfs.Version) error 
 // cannot explain.
 func committed(v vfs.Version, err error) (vfs.Version, error) {
 	if errors.Is(err, vfs.ErrCommitted) {
-		return "", fmt.Errorf("%w: %v", ErrCommitted, err)
+		return "", fmt.Errorf("%w: %w", ErrCommitted, err)
 	}
 	return v, err
 }

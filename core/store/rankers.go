@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/yongjohnlee80/golib/dao"
+	"github.com/yongjohnlee80/golib/errs"
 )
 
 // RANKER MODELS — the re-ranking models search's second stage can use (ADR 0215), one of them in
@@ -31,9 +32,9 @@ const (
 
 // The refusals of the ranker table.
 var (
-	ErrNoRanker      = errors.New("store: no such ranker")
-	ErrRankerTaken   = errors.New("store: another ranker has this name")
-	ErrRankerInvalid = errors.New("store: a ranker needs a name, a kind (tei or rerank-api), a base URL, and a model for rerank-api")
+	ErrNoRanker      = errs.Sentinel(errs.ErrInvalidArgument, "store: no such ranker")
+	ErrRankerTaken   = errs.Sentinel(errs.ErrPrecondition, "store: another ranker has this name")
+	ErrRankerInvalid = errs.Sentinel(errs.ErrInvalidArgument, "store: a ranker needs a name, a kind (tei or rerank-api), a base URL, and a model for rerank-api")
 )
 
 // RankerSpec is a ranker as a client writes it. Key nil keeps the key the store holds; a pointer
@@ -234,7 +235,7 @@ func (s *Store) rankerID(tx *Tx, name string) (int64, error) {
 
 func rankerTaken(err error) error {
 	if errors.Is(err, dao.ErrDuplicate) {
-		return fmt.Errorf("%w: %v", ErrRankerTaken, err)
+		return fmt.Errorf("%w: %w", ErrRankerTaken, err)
 	}
 	return err
 }

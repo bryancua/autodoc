@@ -37,10 +37,10 @@ var (
 	// ErrDeriverFailed is the deriver's own failure to make a document's text: an error other than
 	// a miss, a second miss, a panic, or no text. It may pass (a busy lease, a full cache disk), so
 	// it is the document's error for now, tried again; it never says what the file holds.
-	ErrDeriverFailed = errors.New("derived: the deriver could not make the text")
+	ErrDeriverFailed = errs.Sentinel(errs.ErrPrecondition, "derived: the deriver could not make the text")
 	// ErrRefused is a text the deriver delivered that AutoDoc refuses, which the same bytes would
 	// deliver again: made under another identity than the frozen one, or a negative stated size.
-	ErrRefused = errors.New("derived: the derived text is refused")
+	ErrRefused = errs.Sentinel(errs.ErrUnsupported, "derived: the derived text is refused")
 )
 
 // Text derives the text of path, a file of size bytes in fsys, with reg's deriver. The text is the
@@ -64,6 +64,8 @@ func Text(ctx context.Context, reg *registrations.Table, fsys vfs.FS, path strin
 			break
 		}
 		if attempt == 1 {
+			// %v, not %w: the deriver's miss is a not-exist of its own, and wrapped it would read as
+			// the file gone (CodeNotFound) where it is the deriver failing
 			err = fmt.Errorf("%w: %s: its text was evicted twice: %v", ErrDeriverFailed, path, err)
 			break
 		}
@@ -73,7 +75,7 @@ func Text(ctx context.Context, reg *registrations.Table, fsys vfs.FS, path strin
 	}
 	if err := reg.CheckDerived(format, out); err != nil {
 		_ = out.Text.Close()
-		return registrations.Derived{}, fmt.Errorf("%w: %s: %v", ErrRefused, path, err)
+		return registrations.Derived{}, fmt.Errorf("%w: %s: %w", ErrRefused, path, err)
 	}
 	if out.Bytes < 0 {
 		_ = out.Text.Close()
@@ -112,6 +114,8 @@ func derive(ctx context.Context, d registrations.Deriver, fsys vfs.FS, path stri
 	case errors.Is(err, fs.ErrNotExist):
 		return out, true, err
 	case err != nil:
+		// %v, not %w: the deriver is another module's code, and its error is its own text, never an
+		// identity of ours a client would act on (a not-exist of its own is not the file gone)
 		return out, false, fmt.Errorf("%w: %s: %v", ErrDeriverFailed, path, err)
 	case out.Text == nil:
 		return out, false, fmt.Errorf("%w: %s: the deriver gave no text", ErrDeriverFailed, path)

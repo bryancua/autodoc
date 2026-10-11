@@ -7818,7 +7818,7 @@
         "Facets": null
       }
     },
-    "Err": "index: the query could not be embedded: fake: the provider is down"
+    "Err": "precondition failed: index: the query could not be embedded: fake: the provider is down"
   },
   {
     "Query": {

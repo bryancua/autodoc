@@ -14,6 +14,7 @@ import (
 	"strconv"
 
 	"github.com/yongjohnlee80/golib/dao"
+	"github.com/yongjohnlee80/golib/errs"
 	"github.com/yongjohnlee80/golib/search/chunk"
 	"github.com/yongjohnlee80/golib/vfs"
 
@@ -83,7 +84,7 @@ func (s *Store) sectionTokens(ctx context.Context) (int, error) {
 }
 
 // ErrCursorExpired is a change cursor older than the retained log: the client re-lists (0203 §4.5).
-var ErrCursorExpired = errors.New("index: the change cursor is older than the retained log")
+var ErrCursorExpired = errs.Sentinel(errs.ErrPrecondition, "index: the change cursor is older than the retained log")
 
 // Store is one workspace's index in the store.
 type Store struct {

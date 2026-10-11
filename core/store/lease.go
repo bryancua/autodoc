@@ -8,10 +8,12 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/yongjohnlee80/golib/errs"
 )
 
 // ErrBusy is a store another AutoDoc instance already serves: its lease is held.
-var ErrBusy = errors.New("store: another instance serves this store")
+var ErrBusy = errs.Sentinel(errs.ErrPrecondition, "store: another instance serves this store")
 
 // acquireLease takes the single-instance lease on the store at path: an flock
 // on a sidecar named for the store's device and inode, beside it.
