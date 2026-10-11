@@ -52,10 +52,10 @@ import (
 type Host struct {
 	p        *tuidecl.Program
 	session  *Session
-	reg      *registry // the features, merged (feature.go)
-	asker    *asker    // the one yes-or-no question (ask.go)
-	prefRows []PrefSpec
-	keys     keyset             // the keys and their cards, the host's and the features' (keys.go)              // every preference declared, the host's and the features' (prefspec.go)
+	reg      *registry          // the features, merged (feature.go)
+	asker    *asker             // the one yes-or-no question (ask.go)
+	prefRows []PrefSpec         // every preference declared, the host's and the features' (prefspec.go)
+	keys     keyset             // the keys and their cards, the host's and the features' (keys.go)
 	started  bool               // the first preferences were applied: the program has started (applyPrefs)
 	editor   editorWidget       // main.qml's Editor, terminal or native (editor.go)
 	core     *widget.EditorCore // its core: the text, the cursor and the modes
