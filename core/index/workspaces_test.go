@@ -113,20 +113,20 @@ func TestSectionSizeRechunksOnlyItsWorkspace(t *testing.T) {
 	ws := shareAStore(t, []Options{{}, {}}, []string{"a", "n.md", text}, []string{"b", "n.md", text})
 	ctx := context.Background()
 	a, b := ws[0].ix, ws[1].ix
-	beforeA, beforeB := a.store.indexer("n.md"), b.store.indexer("n.md")
+	beforeA, beforeB := a.store.indexer(context.Background(), "n.md"), b.store.indexer(context.Background(), "n.md")
 	if beforeA != beforeB {
 		t.Fatalf("initial versions differ: %s / %s", beforeA, beforeB)
 	}
 	if err := a.store.db.SetWorkspaceSectionTokens(ctx, a.store.sc.ID(), 256); err != nil {
 		t.Fatal(err)
 	}
-	a.Reindex("")
-	for deadline := time.Now().Add(10 * time.Second); a.store.indexer("n.md") != docVersion(indexerVersion(256), true, "", false); time.Sleep(10 * time.Millisecond) {
+	a.Reindex(context.Background(), "")
+	for deadline := time.Now().Add(10 * time.Second); a.store.indexer(context.Background(), "n.md") != docVersion(indexerVersion(256), true, "", false); time.Sleep(10 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("section-size change did not reindex workspace a")
 		}
 	}
-	if got := b.store.indexer("n.md"); got != beforeB {
+	if got := b.store.indexer(context.Background(), "n.md"); got != beforeB {
 		t.Errorf("workspace b re-chunked: %s -> %s", beforeB, got)
 	}
 }

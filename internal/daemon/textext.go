@@ -59,13 +59,13 @@ func (m *Workspaces) SetTextExtensions(ctx context.Context, name string, exts []
 	if err := m.db.SetWorkspaceTextExtensions(ctx, s.id, norm); err != nil {
 		return nil, err
 	}
-	m.applyTextExtensions(s, norm)
+	m.applyTextExtensions(ctx, s, norm)
 	return norm, nil
 }
 
 // applyTextExtensions gives workspace s's holder the extensions the store now has, and reads again
 // each file whose extension joined or left them, as its new kind.
-func (m *Workspaces) applyTextExtensions(s *served, norm []string) {
+func (m *Workspaces) applyTextExtensions(ctx context.Context, s *served, norm []string) {
 	t := m.textExtensionsFor(s.id)
 	old := t.load()
 	t.store(norm)
@@ -84,9 +84,14 @@ func (m *Workspaces) applyTextExtensions(s *served, norm []string) {
 		}
 	}
 	if len(changed) > 0 {
-		for _, p := range s.ix.PathsUnder(".") {
+		indexed, err := s.ix.PathsUnder(ctx, ".")
+		if err != nil {
+			logger.Warning(m.opts.Log, err, logger.Fields{"event": "index.reindex.failed", "workspace_id": s.id})
+			return
+		}
+		for _, p := range indexed {
 			if slices.Contains(changed, kind.Ext(p)) {
-				_ = s.ix.Reindex(p) // a held document keeps its rows: no type of the workspace's reads it
+				_ = s.ix.Reindex(ctx, p) // a held document keeps its rows: no type of the workspace's reads it
 			}
 		}
 	}

@@ -524,13 +524,13 @@ func TestAFailedVectorDeleteRollsBackItsChunks(t *testing.T) {
 	}
 	e.ix.Touch("x.md")
 	settle()
-	if _, ok := e.store.Version("x.md"); !ok || e.vectorsFor(zebra, "") != 1 {
+	if _, ok, _ := e.store.Version(context.Background(), "x.md"); !ok || e.vectorsFor(zebra, "") != 1 {
 		t.Errorf("the removal with the vector delete refused: indexed %v (want true), %d vectors (want 1)", ok, e.vectorsFor(zebra, ""))
 	}
 
 	undo()
 	e.eventually("the removal and gc once the failure lifts", func() bool {
-		_, ok := e.store.Version("x.md")
+		_, ok, _ := e.store.Version(context.Background(), "x.md")
 		return !ok && dead() == 0 && e.vectorsFor(zebra, "") == 0 && e.vectorsFor(hippo, "") == 0
 	})
 }
@@ -577,12 +577,12 @@ func TestARemovalWhoseChunksCannotBeReadIsRetried(t *testing.T) {
 	}
 	e.ix.Touch("x.md")
 	time.Sleep(200 * time.Millisecond) // the writer tries, and fails, several times
-	if _, ok := e.store.Version("x.md"); !ok {
+	if _, ok, _ := e.store.Version(context.Background(), "x.md"); !ok {
 		t.Error("the removal went through without its chunks' texts")
 	}
 	e.exec(`ALTER TABLE chunk RENAME COLUMN text_hash_aside TO text_hash`)
 	e.eventually("the removal once the texts can be read", func() bool {
-		_, ok := e.store.Version("x.md")
+		_, ok, _ := e.store.Version(context.Background(), "x.md")
 		return !ok && e.vectorsFor(zebra, "") == 0
 	})
 }

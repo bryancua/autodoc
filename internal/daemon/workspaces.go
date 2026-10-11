@@ -431,7 +431,9 @@ func (m *Workspaces) SetSectionTokens(ctx context.Context, name string, tokens i
 		return err
 	}
 	if s.ix != nil {
-		_ = s.ix.Reindex("") // the whole workspace is never refused
+		if err := s.ix.Reindex(ctx, ""); err != nil { // never refused: only the store unread
+			logger.Warning(m.opts.Log, err, logger.Fields{"event": "index.reindex.failed", "workspace": name})
+		}
 	}
 	return nil
 }
