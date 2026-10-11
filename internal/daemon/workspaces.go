@@ -459,7 +459,7 @@ func (m *Workspaces) SetPatterns(ctx context.Context, name string, include, excl
 		return fmt.Errorf("%w: %s", store.ErrNoWorkspace, name)
 	}
 	candidate := config.Workspace{Name: name, Root: old.root, Include: include, Exclude: exclude}
-	if err := checkRoot(ctx, candidate); err != nil {
+	if err := checkRoot(candidate); err != nil {
 		return err
 	}
 	if err := m.db.SetWorkspacePatterns(ctx, old.id, include, exclude); err != nil {
@@ -603,7 +603,7 @@ func (m *Workspaces) Add(ctx context.Context, c config.Workspace) (rpc.Workspace
 		return nil, fmt.Errorf("%w: %s", store.ErrTaken, c.Name)
 	}
 	// the root is checked before anything is recorded: a workspace is never stored unservable
-	if err := checkRoot(ctx, c); err != nil {
+	if err := checkRoot(c); err != nil {
 		return nil, err
 	}
 	row, err := m.db.AddWorkspace(ctx, c.Name, c.Root, c.Include, c.Exclude)
@@ -624,7 +624,7 @@ func (m *Workspaces) Add(ctx context.Context, c config.Workspace) (rpc.Workspace
 	return s.view, nil
 }
 
-func checkRoot(ctx context.Context, c config.Workspace) error {
+func checkRoot(c config.Workspace) error {
 	ws, err := workspace.Open(c)
 	if err != nil {
 		return err
