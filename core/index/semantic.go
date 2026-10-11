@@ -114,6 +114,7 @@ type semantic struct {
 	// refused holds the texts a provider rejected (fingerprint, then text hash), and until when they
 	// are set aside: their documents answer lexically, and the other texts go on. The worker's own.
 	refused     map[string]refusalEntry
+	now         clock.Clock // a refusal's retry_at, which index.status reports
 	fillStart   time.Time
 	fillTexts   int64
 	fillTotal   int64
@@ -126,8 +127,8 @@ type semantic struct {
 	beforeFetch func()
 }
 
-func newSemantic(target embed.Provider) *semantic {
-	return &semantic{target: target, vectors: make(chan vecBatch), wake: make(chan struct{}, 1),
+func newSemantic(target embed.Provider, now clock.Clock) *semantic {
+	return &semantic{target: target, now: now, vectors: make(chan vecBatch), wake: make(chan struct{}, 1),
 		refused: map[string]refusalEntry{}}
 }
 
@@ -784,7 +785,7 @@ func (m *semantic) embedSome(ctx context.Context, p embed.Provider, fp string, d
 	defer m.mu.Unlock()
 	for _, r := range rejected {
 		t := texts[r.Index]
-		m.refused[fp+"\x00"+string(hashes[r.Index])] = refusalEntry{err: r.Err, retryAt: time.Now().Add(refusedFor), bytes: len(t), tokens: chunk.Tokens([]byte(t))}
+		m.refused[fp+"\x00"+string(hashes[r.Index])] = refusalEntry{err: r.Err, retryAt: m.now.Now().Add(refusedFor), bytes: len(t), tokens: chunk.Tokens([]byte(t))}
 	}
 	for i, v := range vecs {
 		if v == nil {
@@ -800,7 +801,7 @@ func (m *semantic) embedSome(ctx context.Context, p embed.Provider, fp string, d
 func (m *semantic) skip(fp string) map[string]bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	now := time.Now()
+	now := m.now.Now()
 	out := map[string]bool{}
 	for k, entry := range m.refused {
 		if now.After(entry.retryAt) {
@@ -1119,7 +1120,7 @@ func (x *Indexer) refusedTexts(ctx context.Context, fp, onlyHash string) ([]Refu
 	m.mu.Lock()
 	entries := make(map[string]refusalEntry)
 	for key, entry := range m.refused {
-		if f, hash, ok := strings.Cut(key, "\x00"); ok && f == fp && (onlyHash == "" || onlyHash == hash) && time.Now().Before(entry.retryAt) {
+		if f, hash, ok := strings.Cut(key, "\x00"); ok && f == fp && (onlyHash == "" || onlyHash == hash) && m.now.Now().Before(entry.retryAt) {
 			entries[hash] = entry
 		}
 	}

@@ -128,7 +128,7 @@ func (s *Store) AddProvider(ctx context.Context, sp ProviderSpec) (ProviderInfo,
 	}
 	var info ProviderInfo
 	err := s.Write(ctx, func(tx *Tx) error {
-		now := time.Now().Unix()
+		now := s.now.Now().Unix()
 		id, err := tx.t.providers.On(tx.tx).Set(ProviderName, sp.Name).Set(ProviderKind, sp.Kind).
 			Set(ProviderBaseURL, sp.BaseURL).Set(ProviderModel, sp.Model).Set(ProviderContext, int64(sp.ContextWindow())).
 			Set(ProviderCreatedAt, now).Set(ProviderUpdatedAt, now).Insert()
@@ -176,7 +176,7 @@ func (s *Store) UpdateProvider(ctx context.Context, name string, sp ProviderSpec
 		}
 		if err := tx.t.providers.On(tx.tx).With(ProviderID, p.ID).Set(ProviderName, sp.Name).Set(ProviderKind, sp.Kind).
 			Set(ProviderBaseURL, sp.BaseURL).Set(ProviderModel, sp.Model).Set(ProviderContext, int64(sp.ContextWindow())).
-			Set(ProviderUpdatedAt, time.Now().Unix()).Update(); err != nil {
+			Set(ProviderUpdatedAt, s.now.Now().Unix()).Update(); err != nil {
 			return providerTaken(err)
 		}
 		if err := s.setKey(tx, p.ID, sp.Key); err != nil {
@@ -197,7 +197,7 @@ func followProvider(tx *Tx, from, to string) error {
 		return nil
 	}
 	return tx.t.preferences.On(tx.tx).With(PrefName, PrefProvider).With(PrefValue, from).
-		Set(PrefValue, to).Set(PrefUpdatedAt, time.Now().Unix()).Update()
+		Set(PrefValue, to).Set(PrefUpdatedAt, tx.now.Now().Unix()).Update()
 }
 
 // setKey seals key into the provider's row; nil leaves it, "" removes it.

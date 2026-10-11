@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/yongjohnlee80/golib/dao"
 	"github.com/yongjohnlee80/golib/errs"
@@ -98,7 +97,7 @@ func (s *Store) AddRanker(ctx context.Context, sp RankerSpec) (RankerInfo, error
 	}
 	var info RankerInfo
 	err := s.Write(ctx, func(tx *Tx) error {
-		now := time.Now().Unix()
+		now := s.now.Now().Unix()
 		id, err := tx.t.rankers.On(tx.tx).Set(RankerName, sp.Name).Set(RankerKind, sp.Kind).
 			Set(RankerBaseURL, sp.BaseURL).Set(RankerModel, sp.model()).
 			Set(RankerCreatedAt, now).Set(RankerUpdatedAt, now).Insert()
@@ -131,7 +130,7 @@ func (s *Store) UpdateRanker(ctx context.Context, name string, sp RankerSpec) er
 		}
 		if err := tx.t.rankers.On(tx.tx).With(RankerID, id).Set(RankerName, sp.Name).Set(RankerKind, sp.Kind).
 			Set(RankerBaseURL, sp.BaseURL).Set(RankerModel, sp.model()).
-			Set(RankerUpdatedAt, time.Now().Unix()).Update(); err != nil {
+			Set(RankerUpdatedAt, s.now.Now().Unix()).Update(); err != nil {
 			return rankerTaken(err)
 		}
 		if err := s.setRankerKey(tx, id, sp.Key); err != nil {
@@ -163,7 +162,7 @@ func followRanker(tx *Tx, from, to string) error {
 		return nil
 	}
 	return tx.t.preferences.On(tx.tx).With(PrefName, PrefRanker).With(PrefValue, from).
-		Set(PrefValue, to).Set(PrefUpdatedAt, time.Now().Unix()).Update()
+		Set(PrefValue, to).Set(PrefUpdatedAt, tx.now.Now().Unix()).Update()
 }
 
 // setRankerKey seals key into the ranker's row; nil leaves it, "" removes it.
