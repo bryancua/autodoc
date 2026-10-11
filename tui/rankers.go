@@ -334,14 +334,11 @@ func (h *Host) startRemoveRanker(i int) {
 	if !ok {
 		return
 	}
-	h.removingRanker = r.name
-	h.set("App.rankerRemoveQuestion", "Remove the ranker "+r.name+"? Its key, its usage and its log go; "+
-		"if it is in use, search is no longer re-ranked.")
-	h.open("rankerRemove")
+	h.ask(Question{Title: "remove the ranker?", Text: "Remove the ranker " + r.name + "? Its key, its usage and its log go; " +
+		"if it is in use, search is no longer re-ranked.", OnYes: func() { h.removeRankerConfirmed(r.name) }})
 }
 
-func (h *Host) removeRankerConfirmed() {
-	name := h.removingRanker
+func (h *Host) removeRankerConfirmed(name string) {
 	do(h, func(ctx context.Context) error {
 		_, err := h.call(ctx, "ranker.remove", name)
 		return err

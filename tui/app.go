@@ -53,6 +53,7 @@ type Host struct {
 	p       *tuidecl.Program
 	session *Session
 	reg     *registry          // the features, merged (feature.go)
+	asker   *asker             // the one yes-or-no question (ask.go)
 	started bool               // the first preferences were applied: the program has started (applyPrefs)
 	editor  editorWidget       // main.qml's Editor, terminal or native (editor.go)
 	core    *widget.EditorCore // its core: the text, the cursor and the modes
@@ -144,27 +145,25 @@ type Host struct {
 	// the embedding providers (providers.go)
 	providerList                    []providerRow
 	activeProvider, editingProvider string
-	removingProvider                string
 	formKind                        int
 	formBase, formKey, formModel    string
 	formMax                         int64
 	formHasKey                      bool // the provider the form edits has a key sealed
 	modelList                       []string
 	vectorList                      []vectorRow // the workspace's models, as listed (vectors.go)
-	purging                         vectorRow   // the model the purge question asks about
 	providerSeq                     uint64
 
 	// the ranker models (rankers.go): AI models' tab, the rankers listed, the one in use, the
 	// build's own (its model, "" for none), and the row the shared buttons act on
-	aiTab                         int
-	rankerList                    []rankerRow
-	activeRanker, rankerSupplied  string
-	editingRanker, removingRanker string
-	rankerFormKind                int
-	rankerFormHasKey              bool
-	rankerCursor                  int
-	rankerSeq                     uint64
-	hitsRanked                    string // the hits' title's note of their order (rankedTitle)
+	aiTab                        int
+	rankerList                   []rankerRow
+	activeRanker, rankerSupplied string
+	editingRanker                string
+	rankerFormKind               int
+	rankerFormHasKey             bool
+	rankerCursor                 int
+	rankerSeq                    uint64
+	hitsRanked                   string // the hits' title's note of their order (rankedTitle)
 	// the search's stages (stages.go): the ranker in use, who it is and how its box names it ("" for
 	// none), and the stages the boxes last asked for
 	stageRankerID, stageRanker string
@@ -225,10 +224,9 @@ type Host struct {
 	listRetry time.Duration // the delay before the file list's next retry after a failure; 0 after a success
 	filesAll  []string
 
-	// the workspace manager: the row under its cursor, the workspace a delete was started on, and
-	// whether the edition offers the database settings
+	// the workspace manager: the row under its cursor, and whether the edition offers the database
+	// settings
 	managerIndex int
-	removing     string
 	databases    bool
 
 	file openedFile // the file in the editor (files.go)
@@ -269,12 +267,11 @@ type Host struct {
 	pluginKeyRows    *tuidecl.ListModel
 	pluginKeyTargets map[string]string
 	running          map[string]*pluginRun
-	// adding and managing them (plugininstall.go): the change PluginConfirm asks about, the manager's
-	// rows, and the directory PluginRemove asks about
+	// adding and managing them (plugininstall.go): the change PluginConfirm asks about, and the
+	// manager's rows
 	pendingPlugin  *pluginChange
 	managedList    []managedPlugin
 	managedPlugins *tuidecl.ListModel
-	removingPlugin string
 	pageWidth      int // the page's width as last set: the ruler, the border, the gutter
 
 	mu   sync.Mutex
