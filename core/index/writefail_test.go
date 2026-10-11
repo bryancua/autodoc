@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,10 +34,16 @@ func (e *env) renamed(table string) (undo func()) {
 // write refused), nothing of the batch is written, and its jobs run again: once the failure lifts,
 // every change lands.
 func TestAFailedCommitWritesNothingAndIsRetried(t *testing.T) {
+	var failed atomic.Int64 // commits the injected failure refused
+	commitFailed = func(err error) {
+		if strings.Contains(err.Error(), "injected failure") {
+			failed.Add(1)
+		}
+	}
+	t.Cleanup(func() { commitFailed = nil }) // after the env's own cleanup has stopped the indexer
 	e := newEnv(t, options{})
 	e.put("keep.md", "---\ntags: [old]\n---\n# Keep\n\nfirst words [[other]]\n", "gone.md", "to be removed\n")
 	version := func(p string) string { v, _, _ := e.store.Version(context.Background(), p); return string(v) }
-	settle := func() { time.Sleep(150 * time.Millisecond) } // several batches try and fail
 	for _, c := range []struct {
 		name, table, op string
 		act             func()
@@ -81,8 +88,9 @@ func TestAFailedCommitWritesNothingAndIsRetried(t *testing.T) {
 			func() { e.eventually("gone.md gone", func() bool { return version("gone.md") == "" }) }},
 	} {
 		undo := e.failWrites(c.table, c.op)
+		before := failed.Load()
 		c.act()
-		settle()
+		e.eventually(c.name+": a commit refused", func() bool { return failed.Load() > before })
 		if !c.unchanged() {
 			undo()
 			t.Fatalf("%s: a failed commit wrote part of its batch", c.name)
