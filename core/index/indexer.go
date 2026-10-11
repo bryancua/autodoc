@@ -192,8 +192,8 @@ type Indexer struct {
 
 	parses int64 // prepared documents that were parsed, for tests (atomic via mu)
 
-	kinds kind.Registrations // Options.Registrations' extensions, read once
-	holds holds              // the documents this daemon holds (ADR 0216 §1.4)
+	kinds kind.Resolver // the build's registered extensions, read once, and the workspace's text ones
+	holds holds         // the documents this daemon holds (ADR 0216 §1.4)
 }
 
 type job struct {
@@ -264,7 +264,7 @@ func newIndexer(store *Store, fsys vfs.FS, opts options) *Indexer {
 	if opts.Logger == nil {
 		opts.Logger = logger.Nop{}
 	}
-	ix := &Indexer{store: store, fsys: fsys, opts: opts, kinds: opts.Registrations.Kinds(), touched: map[string]bool{},
+	ix := &Indexer{store: store, fsys: fsys, opts: opts, kinds: kind.Resolver{Registrations: opts.Registrations.Kinds(), Text: opts.TextExtensions}, touched: map[string]bool{},
 		signal: make(chan struct{}, 1), jobs: map[string]*job{}, unpersisted: map[string]bool{},
 		results: make(chan *prepared, 2*opts.Workers),
 		work:    make(chan workItem), ops: make(chan op), ready: make(chan struct{}), reclaims: make(chan string, 64),
@@ -582,7 +582,7 @@ func (x *Indexer) prepare(ctx context.Context, w workItem) *prepared {
 		return p
 	}
 	sch, schemaFP := x.schema()
-	k := x.kindOf(w.path)
+	k := x.kinds.Of(w.path)
 	p.indexer = x.versionOf(w.path, k, tokens, schemaFP, ret.AbstractChunk)
 	fi, err := x.fsys.Stat(ctx, w.path)
 	switch {
@@ -612,7 +612,7 @@ func (x *Indexer) prepare(ctx context.Context, w workItem) *prepared {
 		}
 		return p
 	}
-	derives := k == kind.Derived && x.kinds.Readable(w.path)
+	derives := k == kind.Derived && x.kinds.Registrations.Readable(w.path)
 	if k == kind.Derived && !derives {
 		p.delete = true // a build without its deriver never reads a derived document format, whatever a glob admits
 		return p
@@ -668,46 +668,98 @@ func (x *Indexer) prepare(ctx context.Context, w workItem) *prepared {
 			return p
 		}
 	}
-	switch k {
-	case kind.Registered:
-		p.meta.Title = strings.TrimSuffix(path.Base(w.path), path.Ext(w.path))
-		c, v, _ := x.opts.Registrations.Chunker(w.path)
-		cs, err := cutRegistered(c, v, search.Doc{Path: w.path, Title: p.meta.Title, Text: src, Tokens: tokens})
-		if err != nil {
-			p.err = fmt.Errorf("%s: %w", w.path, err)
-			return p
-		}
-		p.chunks = hashedUnder(v, cs)
-	case kind.Text:
-		p.meta.Title = strings.TrimSuffix(path.Base(w.path), path.Ext(w.path))
-		p.chunks = hashed(chunk.Text(src, p.meta.Title, tokens))
-	case kind.YAML:
-		var cs []search.Chunk
-		p.meta, cs = chunk.YAML(src, w.path, tokens)
-		p.chunks = hashed(cs)
-	default:
-		doc := markdown.Parse(src, markdown.GFM(), markdown.Obsidian())
-		p.meta = chunk.ReadMeta(doc, w.path)
-		p.chunks = hashed(chunk.Markdown(doc, p.meta.Title, tokens))
-		if ret.AbstractChunk {
-			if c, ok := chunk.Abstract(p.meta, p.meta.Title); ok {
-				c.Ord = len(p.chunks) // after the sections, so none of them moves
-				p.chunks = append(p.chunks, abstractChunk(c))
-			}
-		}
-		p.links = append(extractLinks(doc, w.path, x.opts.Match), extractRelations(doc, w.path)...)
-		p.adr = adrNumber(p.meta.FrontmatterJSON)
-		// the frontmatter is validated from the parse the file already had (ADR 0212 §5)
-		if fm := doc.Root.FirstChild; fm != nil && fm.Kind == markdown.KindFrontmatter {
-			p.frontmatter = sch.Validate(fm.Literal, true)
-		} else {
-			p.frontmatter = sch.Validate(nil, false)
-		}
+	if err := cutters.Of(k)(x, p, source{text: src, tokens: tokens, abstract: ret.AbstractChunk, schema: sch}); err != nil {
+		p.err = err
+		return p
 	}
 	x.mu.Lock()
 	x.parses++
 	x.mu.Unlock()
 	return p
+}
+
+// source is a file's text as a cutter reads it: the text, the section size, whether an abstract
+// chunk is kept, the frontmatter schema, and a derived document's own title.
+type source struct {
+	text     []byte
+	tokens   int
+	abstract bool
+	schema   *schema.Schema
+	title    string
+}
+
+// cutter cuts a kind's text into p's chunks, links and frontmatter.
+type cutter func(x *Indexer, p *prepared, s source) error
+
+// cutters are each kind's (kind.Table: a kind added is a kind cut).
+var cutters = kind.NewTable(map[kind.Kind]cutter{
+	kind.Markdown:   cutMarkdown,
+	kind.Text:       cutText,
+	kind.YAML:       cutYAML,
+	kind.Registered: cutRegisteredFile,
+	kind.Derived:    cutDerived,
+})
+
+// cutMarkdown parses a workspace's Markdown once, for its chunks (and its abstract), its links and
+// relations, its ADR number, and its frontmatter, validated from the same parse (ADR 0212 §5).
+func cutMarkdown(x *Indexer, p *prepared, s source) error {
+	doc := kind.ParseMarkdown(s.text)
+	p.meta = chunk.ReadMeta(doc, p.path)
+	p.chunks = hashed(chunk.Markdown(doc, p.meta.Title, s.tokens))
+	if s.abstract {
+		if c, ok := chunk.Abstract(p.meta, p.meta.Title); ok {
+			c.Ord = len(p.chunks) // after the sections, so none of them moves
+			p.chunks = append(p.chunks, abstractChunk(c))
+		}
+	}
+	p.links = append(extractLinks(doc, p.path, x.opts.Match), extractRelations(doc, p.path)...)
+	p.adr = adrNumber(p.meta.FrontmatterJSON)
+	if fm := doc.Root.FirstChild; fm != nil && fm.Kind == markdown.KindFrontmatter {
+		p.frontmatter = s.schema.Validate(fm.Literal, true)
+	} else {
+		p.frontmatter = s.schema.Validate(nil, false)
+	}
+	return nil
+}
+
+// fileTitle is a file's name without its extension: the title of a kind with none of its own.
+func fileTitle(p string) string { return strings.TrimSuffix(path.Base(p), path.Ext(p)) }
+
+func cutText(_ *Indexer, p *prepared, s source) error {
+	p.meta.Title = fileTitle(p.path)
+	p.chunks = hashed(chunk.Text(s.text, p.meta.Title, s.tokens))
+	return nil
+}
+
+func cutYAML(_ *Indexer, p *prepared, s source) error {
+	var cs []search.Chunk
+	p.meta, cs = chunk.YAML(s.text, p.path, s.tokens)
+	p.chunks = hashed(cs)
+	return nil
+}
+
+// cutRegisteredFile cuts a file with the build's chunker for its extension, under its version.
+func cutRegisteredFile(x *Indexer, p *prepared, s source) error {
+	p.meta.Title = fileTitle(p.path)
+	c, v, _ := x.opts.Registrations.Chunker(p.path)
+	cs, err := cutRegistered(c, v, search.Doc{Path: p.path, Title: p.meta.Title, Text: s.text, Tokens: s.tokens})
+	if err != nil {
+		return fmt.Errorf("%s: %w", p.path, err)
+	}
+	p.chunks = hashedUnder(v, cs)
+	return nil
+}
+
+// cutDerived cuts a derived document's text: a document's, not a vault's, so no wikilinks or #tags
+// and no frontmatter to check; its deriver's title wins over the text's.
+func cutDerived(_ *Indexer, p *prepared, s source) error {
+	doc := kind.ParseDerived(s.text)
+	p.meta = chunk.ReadMeta(doc, p.path)
+	if s.title != "" {
+		p.meta.Title = s.title
+	}
+	p.chunks = hashed(chunk.Markdown(doc, p.meta.Title, s.tokens))
+	return nil
 }
 
 // indexer is the identity path was indexed under; "" for none, or a read that failed, which never
@@ -898,13 +950,10 @@ func (x *Indexer) prepareDerived(ctx context.Context, p *prepared, fi vfs.FileIn
 		p.err, p.refused = fmt.Errorf("%s: its derived text is not UTF-8", p.path), true
 		return p
 	}
-	// the text is a document's, not a vault's: no wikilinks or #tags, no frontmatter to check
-	doc := markdown.Parse(src, markdown.GFM())
-	p.meta = chunk.ReadMeta(doc, p.path)
-	if d.Info.Title != "" {
-		p.meta.Title = d.Info.Title
+	if err := cutters.Of(kind.Derived)(x, p, source{text: src, tokens: tokens, title: d.Info.Title}); err != nil {
+		p.err = err
+		return p
 	}
-	p.chunks = hashed(chunk.Markdown(doc, p.meta.Title, tokens))
 	x.mu.Lock()
 	x.parses++
 	x.mu.Unlock()

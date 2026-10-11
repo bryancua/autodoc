@@ -48,8 +48,7 @@ var (
 type Docs struct {
 	fsys     vfs.FS
 	eligible func(path string) bool // the workspace's include and exclude; nil: every path
-	text     func() []string        // the workspace's own plain-text extensions; nil: none
-	kinds    kind.Registrations     // the build's registered extensions (ADR 0216)
+	kinds    kind.Resolver          // the build's registered extensions (ADR 0216) and the workspace's text ones
 	reg      *registrations.Table   // the build's deriver, for its formats' text; nil: none
 }
 
@@ -58,11 +57,13 @@ type Option func(*Docs)
 
 // WithTextExtensions reads the workspace's own plain-text extensions (core/kind) from text, asked
 // at each read and write, so a change applies without a restart.
-func WithTextExtensions(text func() []string) Option { return func(d *Docs) { d.text = text } }
+func WithTextExtensions(text func() []string) Option { return func(d *Docs) { d.kinds.Text = text } }
 
 // WithRegistrations reads files of the build's registered extensions as their kind (kind.Registered:
 // UTF-8 text, validated as such on a write).
-func WithRegistrations(r kind.Registrations) Option { return func(d *Docs) { d.kinds = r } }
+func WithRegistrations(r kind.Registrations) Option {
+	return func(d *Docs) { d.kinds.Registrations = r }
+}
 
 // WithDeriver reads the formats reg derives as their derived text, read-only.
 func WithDeriver(reg *registrations.Table) Option { return func(d *Docs) { d.reg = reg } }
@@ -74,14 +75,6 @@ func New(fsys vfs.FS, eligible func(path string) bool, opts ...Option) *Docs {
 		o(d)
 	}
 	return d
-}
-
-func (d *Docs) kindOf(path string) kind.Kind {
-	var text []string
-	if d.text != nil {
-		text = d.text()
-	}
-	return d.kinds.Of(path, text)
 }
 
 // Doc is a document's content at a version.
@@ -100,13 +93,13 @@ func (d *Docs) Derived(path string) bool { return d.derives(path) }
 // derives reports whether path is a format the build derives.
 func (d *Docs) derives(path string) bool {
 	_, ok := d.reg.Format(kind.Ext(path))
-	return ok && d.kindOf(path) == kind.Derived
+	return ok && d.kinds.Of(path) == kind.Derived
 }
 
 // check refuses a path the workspace does not index, a derived format the build does not derive, and
 // a change (write) to one it does.
 func (d *Docs) check(path string, write bool) error {
-	if d.kindOf(path) == kind.Derived && !d.derives(path) {
+	if d.kinds.Of(path) == kind.Derived && !d.derives(path) {
 		return fmt.Errorf("%w: %s", ErrNotEligible, path)
 	}
 	if d.eligible != nil && !d.eligible(path) {
@@ -172,7 +165,7 @@ func (d *Docs) readBytes(ctx context.Context, path string) (Doc, error) {
 		_ = r.Close()
 		return content, len(content) <= MaxSize, err // longer: it grew after the Stat
 	})
-	if err == nil && d.kindOf(path).IsText() && !kind.Textual(doc.Content) {
+	if err == nil && d.kinds.Of(path).IsText() && !kind.Textual(doc.Content) {
 		return Doc{}, fmt.Errorf("%w: %s is not UTF-8 text", ErrNotEligible, path)
 	}
 	return doc, err
@@ -241,7 +234,7 @@ func (d *Docs) write(ctx context.Context, path string, content []byte, want vfs.
 	if len(content) > MaxSize {
 		return "", fmt.Errorf("%w: %d bytes", ErrTooLarge, len(content))
 	}
-	if d.kindOf(path).IsText() && !kind.Textual(content) {
+	if d.kinds.Of(path).IsText() && !kind.Textual(content) {
 		return "", fmt.Errorf("%w: %s is not UTF-8 text", ErrNotEligible, path)
 	}
 	var fi vfs.FileInfo

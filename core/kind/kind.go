@@ -38,9 +38,10 @@ func (k Kind) String() string {
 	return "markdown"
 }
 
-// DerivedExtensions are the formats read only as derived text. Every build derives .docx, .htm
-// and .html (core/registrations' Documents); the rest need a deriver that names them, such as a
-// Pro build's .pdf.
+// DerivedExtensions are the formats read only as derived text in every build, derived or not: a
+// PDF is never read as Markdown. Every build derives .docx, .htm and .html (core/registrations'
+// Documents); the rest need a deriver that names them, such as a Pro build's .pdf. A build's
+// deriver may add formats beyond these (Registrations.Derived).
 var DerivedExtensions = []string{".doc", ".docx", ".htm", ".html", ".odt", ".pdf"}
 
 // RawText reports whether a derived format's source is itself text a person edits: HTML. Raw access
@@ -71,7 +72,7 @@ func (r Registrations) Of(p string, text []string) Kind {
 		return YAML
 	}
 	switch {
-	case slices.Contains(DerivedExtensions, ext):
+	case slices.Contains(DerivedExtensions, ext), slices.Contains(r.Derived, ext):
 		return Derived
 	case slices.Contains(r.Chunked, ext):
 		return Registered
@@ -93,7 +94,7 @@ func Label(p string) string { return strings.ToUpper(strings.TrimPrefix(Ext(p), 
 func Textual(b []byte) bool { return utf8.Valid(b) && bytes.IndexByte(b, 0) < 0 }
 
 // IsText reports whether the kind is read as UTF-8 text that must validate as such (Textual).
-func (k Kind) IsText() bool { return k == Text || k == YAML || k == Registered }
+func (k Kind) IsText() bool { return k.Traits().Text }
 
 // ErrExtension is a custom text extension that cannot be one: malformed, a built-in kind's, or a
 // derived document format's (which is read only as derived text, whatever a workspace says).

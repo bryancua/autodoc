@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/yongjohnlee80/autodoc/core/kind"
 )
 
 // FRONTMATTER — the workspace's schema, and the open file checked against it (ADR 0212 §5).
@@ -84,7 +82,7 @@ func (h *Host) validateNow(gen uint64) {
 	if !h.file.open {
 		p = untitled + ".md"
 	}
-	if h.ws == "" || h.file.outside() || h.kinds.Of(p, h.textExtensions()) != kind.Markdown {
+	if h.ws == "" || h.file.outside() || !h.resolver().Of(p).Traits().Frontmatter {
 		h.showDiagnostics(nil)
 		return
 	}

@@ -7,6 +7,8 @@ import (
 	"github.com/yongjohnlee80/golib/parse/markdown"
 	pyaml "github.com/yongjohnlee80/golib/parse/yaml"
 	"github.com/yongjohnlee80/golib/yaml"
+
+	"github.com/yongjohnlee80/autodoc/core/kind"
 )
 
 // The rules a Diagnostic names.
@@ -45,7 +47,7 @@ type Result struct {
 // ValidateFile checks a Markdown file's frontmatter, parsing the file as the indexer does. A nil
 // schema still reports frontmatter that is not well-formed, which is worth saying before a save.
 func (s *Schema) ValidateFile(src []byte) Result {
-	doc := markdown.Parse(src, markdown.GFM(), markdown.Obsidian())
+	doc := kind.ParseMarkdown(src)
 	if fm := doc.Root.FirstChild; fm != nil && fm.Kind == markdown.KindFrontmatter {
 		return s.Validate(fm.Literal, true)
 	}

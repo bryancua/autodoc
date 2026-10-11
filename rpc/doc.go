@@ -125,10 +125,7 @@ func (s *Server) docVerbs() []module.Verb {
 				}
 				k := kind.Markdown
 				if w.Index() != nil {
-					k = w.Index().Kind(p.Path)
-				}
-				if k == kind.Derived {
-					k = kind.Markdown // read, so derived: its text is Markdown
+					k = w.Index().Kind(p.Path) // a derived document's text outlines as the Markdown it is
 				}
 				hs := outline.Read(d.Content, k, "").Headings()
 				out := &outlineJSON{Version: string(d.Version), Headings: make([]headingJSON, len(hs))}
@@ -150,7 +147,7 @@ func (s *Server) docVerbs() []module.Verb {
 				var sch *schema.Schema
 				sch, _, _ = w.FrontmatterSchema()
 				var ds []schema.Diagnostic
-				if w.Index() == nil || w.Index().Kind(p.Path) == kind.Markdown {
+				if w.Index() == nil || w.Index().Kind(p.Path).Traits().Frontmatter {
 					ds = sch.ValidateFile(p.Content).Diagnostics
 				}
 				return &diagnosticsJSON{Diagnostics: diagnosticsOf(ds)}, nil

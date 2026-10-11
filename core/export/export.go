@@ -17,6 +17,7 @@ import (
 	markdownhtml "github.com/yongjohnlee80/golib/parse/markdown/html"
 
 	"github.com/yongjohnlee80/autodoc/core/export/mermaid"
+	"github.com/yongjohnlee80/autodoc/core/kind"
 )
 
 type Format string
@@ -124,7 +125,7 @@ func Render(source []byte, format Format, theme string) ([]byte, error) {
 }
 
 func RenderWith(source []byte, format Format, theme string, options Options) ([]byte, error) {
-	document := markdown.Parse(source, markdown.GFM(), markdown.Obsidian())
+	document := kind.ParseMarkdown(source)
 	switch format {
 	case HTML:
 		colors, ok := palettes[theme]
