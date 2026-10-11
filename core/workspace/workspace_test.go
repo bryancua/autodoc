@@ -29,12 +29,22 @@ func TestMatcher(t *testing.T) {
 	}
 }
 
+// TestOpenReportsAMissingRoot: a root that does not exist, and a root that is a regular file, are
+// each ErrNotADirectory, with no workspace opened; a directory opens.
 func TestOpenReportsAMissingRoot(t *testing.T) {
-	c := config.Workspace{Name: "kb", Root: filepath.Join(t.TempDir(), "missing"), Include: config.DefaultInclude(), Exclude: config.DefaultExclude()}
-	if _, err := workspace.Open(c); err == nil {
-		t.Fatal("opened a missing root")
+	dir := t.TempDir()
+	file := filepath.Join(dir, "file.md")
+	if err := os.WriteFile(file, []byte("# a file\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	c.Root = filepath.Dir(c.Root)
+	c := config.Workspace{Name: "kb", Include: config.DefaultInclude(), Exclude: config.DefaultExclude()}
+	for _, root := range []string{filepath.Join(dir, "missing"), file} {
+		c.Root = root
+		if w, err := workspace.Open(c); !errors.Is(err, workspace.ErrNotADirectory) || w != nil {
+			t.Errorf("Open(%s) = %v, %v; want no workspace and ErrNotADirectory", root, w, err)
+		}
+	}
+	c.Root = dir
 	w, err := workspace.Open(c)
 	if err != nil {
 		t.Fatal(err)
