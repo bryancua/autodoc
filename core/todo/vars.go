@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/yongjohnlee80/autodoc/core/paths"
 )
 
 // Builtin variable names. They resolve from the store's context and cannot be set.
@@ -128,7 +130,7 @@ func (s scope) symbolize(p string) string {
 		abs := s.expandHome(p)
 		var best *root
 		for i, r := range roots {
-			if abs == r.value || strings.HasPrefix(abs, r.value+"/") {
+			if paths.Under(abs, r.value) {
 				if best == nil || len(r.value) > len(best.value) {
 					best = &roots[i]
 				}

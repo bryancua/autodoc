@@ -325,7 +325,7 @@ func TestEveryFilterAloneLists(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		if got := paths(res); !reflect.DeepEqual(got, c.want) {
+		if got := hitPaths(res); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s: listed %q, want %q", name, got, c.want)
 		}
 		if len(c.want) > 0 && res.ModeUsed != ModeFacet {

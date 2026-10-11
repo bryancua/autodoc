@@ -23,21 +23,12 @@ func (e *env) search(q string, opts QueryOpts) Result {
 	return res
 }
 
-// paths lists the hits' paths, in order.
-func paths(r Result) []string {
-	var out []string
-	for _, h := range r.Hits {
-		out = append(out, h.Path)
-	}
-	return out
-}
-
 func TestSearchRanksTitleOverBody(t *testing.T) {
 	e := newEnv(t, Options{})
 	// body.md says it three times in a short body; title.md once, in its title (and so its breadcrumb)
 	e.put("body.md", "# Notes\n\nkestrel kestrel kestrel\n", "title.md", "# Kestrel\n\nunrelated words that make the chunk longer than the other\n")
 	res := e.search("kestrel", QueryOpts{})
-	eq(t, "ranking", paths(res), []string{"title.md", "body.md"})
+	eq(t, "ranking", hitPaths(res), []string{"title.md", "body.md"})
 	if res.ModeUsed != ModeLexical || res.Semantic != SemanticOff {
 		t.Errorf("mode %q, semantic %q; want lexical, off", res.ModeUsed, res.Semantic)
 	}
@@ -72,7 +63,7 @@ func TestSearchQuotesOperators(t *testing.T) {
 			t.Errorf("%q: %v", q, err)
 			continue
 		}
-		got := paths(res)
+		got := hitPaths(res)
 		if len(got) > 0 || len(want) > 0 {
 			eq(t, fmt.Sprintf("%q", q), sortedCopy(got), want)
 		}
@@ -96,10 +87,10 @@ func sortedCopy(ss []string) []string {
 func TestSearchPrefixOnTheLastWord(t *testing.T) {
 	e := newEnv(t, Options{})
 	e.put("a.md", "zebrafish meeting\n", "b.md", "a zebra\n")
-	eq(t, "zebra*", sortedCopy(paths(e.search("zebra*", QueryOpts{}))), []string{"a.md", "b.md"})
-	eq(t, "zebra", paths(e.search("zebra", QueryOpts{})), []string{"b.md"})
-	eq(t, "meeting zebraf*", paths(e.search("meeting zebraf*", QueryOpts{})), []string{"a.md"})
-	if got := paths(e.search("zebraf* meeting", QueryOpts{})); len(got) != 0 {
+	eq(t, "zebra*", sortedCopy(hitPaths(e.search("zebra*", QueryOpts{}))), []string{"a.md", "b.md"})
+	eq(t, "zebra", hitPaths(e.search("zebra", QueryOpts{})), []string{"b.md"})
+	eq(t, "meeting zebraf*", hitPaths(e.search("meeting zebraf*", QueryOpts{})), []string{"a.md"})
+	if got := hitPaths(e.search("zebraf* meeting", QueryOpts{})); len(got) != 0 {
 		t.Errorf("zebraf* meeting matched %v: an earlier * was a prefix", got)
 	}
 }
@@ -120,7 +111,7 @@ func TestSearchCollapsesPerDocument(t *testing.T) {
 		}
 	}
 	if n != 3 || len(res.Hits) != 4 {
-		t.Errorf("%d hits from many.md, %d in all; want 3 and 4: %v", n, len(res.Hits), paths(res))
+		t.Errorf("%d hits from many.md, %d in all; want 3 and 4: %v", n, len(res.Hits), hitPaths(res))
 	}
 	if got := e.search("osprey", QueryOpts{Limit: 2}); len(got.Hits) != 2 {
 		t.Errorf("limit 2 gave %d hits", len(got.Hits))
@@ -134,7 +125,7 @@ func TestSearchBoostsAfterFusion(t *testing.T) {
 	// a.md links to itself, which is no in-link, from a section of its own: the heron chunks match
 	e.put("a.md", "# Same\n\nheron text\n\n## See\n\n[[a]]\n", "b.md", "# Same\n\nheron text\n\n## See\n\nnothing\n")
 	base := e.search("heron", QueryOpts{})
-	eq(t, "equal text: by path", paths(base), []string{"a.md", "b.md"})
+	eq(t, "equal text: by path", hitPaths(base), []string{"a.md", "b.md"})
 	// RRF over one retriever, unboosted: 1/(60 + rank), ranks from 1
 	if base.Hits[0].Score != 1.0/61 || base.Hits[1].Score != 1.0/62 {
 		t.Errorf("base scores %v, %v; want 1/61, 1/62", base.Hits[0].Score, base.Hits[1].Score)
@@ -145,7 +136,7 @@ func TestSearchBoostsAfterFusion(t *testing.T) {
 	}
 	e.put("x.md", "[[b]]", "y.md", "[[b]] [[b]]", "z.md", "[[b]]") // three documents, four links
 	linked := e.search("heron", QueryOpts{})
-	eq(t, "linked first", paths(linked), []string{"b.md", "a.md"})
+	eq(t, "linked first", hitPaths(linked), []string{"b.md", "a.md"})
 	if linked.Hits[0].Relevance != 1 {
 		t.Errorf("a boost past first place: relevance %v, want 1 (capped)", linked.Hits[0].Relevance)
 	}
@@ -156,7 +147,7 @@ func TestSearchBoostsAfterFusion(t *testing.T) {
 	e.put("a.md", "---\ntags: [heron]\n---\n# Same\n\nheron text\n\n## See\n\n[[a]]\n")
 	// the tag is on each of a.md's chunks, so its See section matches too: two hits, then b.md
 	tagged := e.search("heron", QueryOpts{})
-	eq(t, "tag outranks three in-links", paths(tagged), []string{"a.md", "a.md", "b.md"})
+	eq(t, "tag outranks three in-links", hitPaths(tagged), []string{"a.md", "a.md", "b.md"})
 	for i, want := range []float64{1.2 / 61, 1.2 / 62, (1 + 0.1*math.Log(4)) / 63} {
 		if got := tagged.Hits[i].Score; math.Abs(got-want) > 1e-12 {
 			t.Errorf("hit %d score %v, want %v", i, got, want)
@@ -181,7 +172,7 @@ func TestSearchFilters(t *testing.T) {
 		{QueryOpts{Paths: []string{"."}}, []string{"a/x.md", "a/y.md", "ab/z.md", "b.md"}},
 		{QueryOpts{Paths: []string{"a"}, Tags: []string{"blue"}}, []string{"a/x.md"}},
 	} {
-		eq(t, fmt.Sprintf("%+v", c.opts), sortedCopy(paths(e.search("wren", c.opts))), c.want)
+		eq(t, fmt.Sprintf("%+v", c.opts), sortedCopy(hitPaths(e.search("wren", c.opts))), c.want)
 	}
 }
 
@@ -195,7 +186,7 @@ func TestSearchModes(t *testing.T) {
 		t.Error("an unknown mode is accepted")
 	}
 	for _, m := range []string{"", ModeAuto, ModeLexical} {
-		if got := paths(e.search("finch", QueryOpts{Mode: m})); len(got) != 1 {
+		if got := hitPaths(e.search("finch", QueryOpts{Mode: m})); len(got) != 1 {
 			t.Errorf("mode %q: %v", m, got)
 		}
 	}
@@ -206,7 +197,7 @@ func TestSearchNeverFindsADeadChunk(t *testing.T) {
 	e := newEnv(t, Options{noGC: true})
 	e.put("a.md", "# A\n\nplover\n")
 	e.put("a.md", "# A\n\nsandpiper\n")
-	if got := paths(e.search("plover", QueryOpts{})); len(got) != 0 {
+	if got := hitPaths(e.search("plover", QueryOpts{})); len(got) != 0 {
 		t.Errorf("the dead chunk was a hit: %v", got)
 	}
 	var entries int
@@ -214,7 +205,7 @@ func TestSearchNeverFindsADeadChunk(t *testing.T) {
 	if entries != 1 {
 		t.Fatalf("%d FTS entries for the dead text, want 1: this test would show nothing", entries)
 	}
-	eq(t, "the new text", paths(e.search("sandpiper", QueryOpts{})), []string{"a.md"})
+	eq(t, "the new text", hitPaths(e.search("sandpiper", QueryOpts{})), []string{"a.md"})
 }
 
 // TestSearchAcrossCommitsAgrees: searches running while a file flips between two texts get hits
@@ -271,7 +262,7 @@ func TestSearchAcrossCommitsAgrees(t *testing.T) {
 func TestFileWithNoTextIsFound(t *testing.T) {
 	e := newEnv(t, Options{})
 	e.put("a.md", "# Kittiwake\n", "b.md", "---\ntitle: Puffin\n---\n", "c.md", "")
-	eq(t, "heading", paths(e.search("kittiwake", QueryOpts{})), []string{"a.md"})
-	eq(t, "frontmatter", paths(e.search("puffin", QueryOpts{})), []string{"b.md"})
-	eq(t, "empty: by its file name", paths(e.search("c", QueryOpts{})), []string{"c.md"})
+	eq(t, "heading", hitPaths(e.search("kittiwake", QueryOpts{})), []string{"a.md"})
+	eq(t, "frontmatter", hitPaths(e.search("puffin", QueryOpts{})), []string{"b.md"})
+	eq(t, "empty: by its file name", hitPaths(e.search("c", QueryOpts{})), []string{"c.md"})
 }

@@ -12,11 +12,13 @@ import (
 	"errors"
 	"io/fs"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/yongjohnlee80/golib/vfs"
+
+	"github.com/yongjohnlee80/autodoc/core/clock"
+	"github.com/yongjohnlee80/autodoc/core/paths"
 )
 
 // Store is what the follower reads of the index.
@@ -170,7 +172,7 @@ func (f *Follower) Run(ctx context.Context) error {
 		if time.Since(start) > f.opts.MaxBackoff {
 			backoff = f.opts.MinBackoff
 		}
-		if !sleepCtx(ctx, backoff) {
+		if !clock.Sleep(ctx, backoff) {
 			break
 		}
 		backoff = min(2*backoff, f.opts.MaxBackoff)
@@ -333,7 +335,7 @@ func (f *Follower) reconcile(ctx context.Context, dir string) {
 func (f *Follower) updateRetry(dir string, failed map[string]error) {
 	now := time.Now()
 	for p, e := range f.retry {
-		if _, still := failed[p]; !still && under(p, dir) && e != nil {
+		if _, still := failed[p]; !still && paths.Under(p, dir) && e != nil {
 			delete(f.retry, p)
 		}
 	}
@@ -352,7 +354,7 @@ func (f *Follower) updateRetry(dir string, failed map[string]error) {
 
 func (f *Follower) covered(p string) bool {
 	for r := range f.retry {
-		if under(p, r) {
+		if paths.Under(p, r) {
 			return true
 		}
 	}
@@ -384,22 +386,5 @@ func (f *Follower) rescanDue(ctx context.Context) {
 		if _, ok := f.retry[p]; ok { // an earlier rescan may have covered it
 			f.reconcile(ctx, p)
 		}
-	}
-}
-
-// under reports whether p is dir or inside it; everything is under ".".
-func under(p, dir string) bool {
-	return dir == "." || p == dir || strings.HasPrefix(p, dir+"/")
-}
-
-// sleepCtx waits for d or ctx, reporting whether d elapsed.
-func sleepCtx(ctx context.Context, d time.Duration) bool {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-t.C:
-		return true
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/yongjohnlee80/golib/logger"
 	"github.com/yongjohnlee80/golib/vfs"
 
+	"github.com/yongjohnlee80/autodoc/core/paths"
 	"github.com/yongjohnlee80/autodoc/core/schema"
 )
 
@@ -92,7 +93,7 @@ func (m *Manager) List(ctx context.Context, at At, opts ListOpts) (Listing, erro
 				scanned = true
 			}
 			for _, f := range active {
-				if f.path == b || strings.HasPrefix(f.path, b+"/") {
+				if paths.Under(f.path, b) {
 					files = append(files, f)
 				}
 			}

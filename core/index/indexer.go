@@ -1,7 +1,6 @@
 package index
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -13,7 +12,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"unicode/utf8"
 
 	"github.com/yongjohnlee80/golib/dao"
 	"github.com/yongjohnlee80/golib/logger"
@@ -582,7 +580,7 @@ func (x *Indexer) prepare(ctx context.Context, w workItem) *prepared {
 	}
 	p.version = fi.Version
 	if k.IsText() {
-		if !utf8.Valid(src) || bytes.IndexByte(src, 0) >= 0 {
+		if !kind.Textual(src) {
 			p.err = fmt.Errorf("%s: not UTF-8 text", w.path)
 			return p
 		}
@@ -811,7 +809,7 @@ func (x *Indexer) prepareDerived(ctx context.Context, p *prepared, fi vfs.FileIn
 	if x.opts.afterRead != nil {
 		x.opts.afterRead(p.path)
 	}
-	if !utf8.Valid(src) || bytes.IndexByte(src, 0) >= 0 {
+	if !kind.Textual(src) {
 		p.err, p.refused = fmt.Errorf("%s: its derived text is not UTF-8", p.path), true
 		return p
 	}

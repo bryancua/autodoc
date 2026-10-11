@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yongjohnlee80/autodoc/core/paths"
 	"github.com/yongjohnlee80/autodoc/core/schema"
 	"github.com/yongjohnlee80/autodoc/core/store"
 )
@@ -218,7 +219,7 @@ func underAny(p string, prefixes []string) bool {
 	}
 	for _, pre := range prefixes {
 		pre = strings.TrimSuffix(path.Clean(pre), "/")
-		if pre == "." || p == pre || strings.HasPrefix(p, pre+"/") {
+		if paths.Under(p, pre) {
 			return true
 		}
 	}
@@ -272,13 +273,8 @@ func missesOne(front map[string]any, fields []string) bool {
 
 // frontDate reads a frontmatter date: YYYY-MM-DD, or an RFC 3339 time.
 func frontDate(v any) (time.Time, bool) {
-	s := strings.TrimSpace(toString(v))
-	for _, layout := range []string{time.RFC3339, "2006-01-02"} {
-		if t, err := time.Parse(layout, s); err == nil {
-			return t.UTC(), true
-		}
-	}
-	return time.Time{}, false
+	t, ok := schema.ParseDate(strings.TrimSpace(toString(v)))
+	return t.UTC(), ok
 }
 
 // toString is a frontmatter scalar as text; a list or a map is its JSON.
