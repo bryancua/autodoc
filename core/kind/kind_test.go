@@ -84,3 +84,15 @@ func TestADerivedFormatIsReadable(t *testing.T) {
 		t.Fatalf("labels %q %q", Label("a/Manual.Pdf"), Label("b.docx"))
 	}
 }
+
+// Text is valid UTF-8 with no NUL: what every reader of a text kind checks, and the editor too.
+func TestTextual(t *testing.T) {
+	for in, want := range map[string]bool{
+		"": true, "plain": true, "héllo ✓": true,
+		"nul\x00inside": false, "\xff\xfe": false, "cut \xe2\x9c": false,
+	} {
+		if got := Textual([]byte(in)); got != want {
+			t.Errorf("Textual(%q) = %v, want %v", in, got, want)
+		}
+	}
+}

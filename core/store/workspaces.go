@@ -5,17 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/yongjohnlee80/golib/dao"
+	"github.com/yongjohnlee80/golib/errs"
 )
 
 // The refusals of the workspace table.
 var (
 	// ErrTaken is a workspace name or root another workspace already has.
-	ErrTaken = errors.New("store: another workspace has this name or root")
+	ErrTaken = errs.Sentinel(errs.ErrPrecondition, "store: another workspace has this name or root")
 	// ErrNoWorkspace is a workspace the store does not have.
-	ErrNoWorkspace = errors.New("store: no such workspace")
+	ErrNoWorkspace = errs.Sentinel(errs.ErrInvalidArgument, "store: no such workspace")
 )
 
 // SectionTokensDefault is the default section limit for existing workspaces.
@@ -28,7 +28,7 @@ const (
 )
 
 // ErrEmbeddingPolicy is a workspace's unrecognized embedding scheduling policy.
-var ErrEmbeddingPolicy = errors.New("store: embedding policy must be always, when opened, or never")
+var ErrEmbeddingPolicy = errs.Sentinel(errs.ErrInvalidArgument, "store: embedding policy must be always, when opened, or never")
 
 // EmbeddingPolicy returns the workspace's scheduling preference.
 func (s *Store) EmbeddingPolicy(ctx context.Context, id int64) (string, error) {
@@ -54,7 +54,7 @@ func (s *Store) SetWorkspaceEmbeddingPolicy(ctx context.Context, id int64, polic
 	}
 	return s.Write(ctx, func(tx *Tx) error {
 		n, err := dao.UpdateAffected(tx.t.workspaces.On(tx.tx).With(WorkspaceID, id).
-			Set(WorkspaceEmbeddingPolicy, policy).Set(WorkspaceUpdatedAt, time.Now().Unix()))
+			Set(WorkspaceEmbeddingPolicy, policy).Set(WorkspaceUpdatedAt, s.now.Now().Unix()))
 		if err != nil {
 			return err
 		}
@@ -96,7 +96,7 @@ func (s *Store) SetWorkspaceSectionTokens(ctx context.Context, id int64, tokens 
 	}
 	return s.Write(ctx, func(tx *Tx) error {
 		n, err := dao.UpdateAffected(tx.t.workspaces.On(tx.tx).With(WorkspaceID, id).
-			Set(WorkspaceSectionTokens, value).Set(WorkspaceUpdatedAt, time.Now().Unix()))
+			Set(WorkspaceSectionTokens, value).Set(WorkspaceUpdatedAt, s.now.Now().Unix()))
 		if err != nil {
 			return err
 		}
@@ -155,7 +155,7 @@ func (s *Store) SetWorkspaceTextExtensions(ctx context.Context, id int64, exts [
 	}
 	return s.Write(ctx, func(tx *Tx) error {
 		n, err := dao.UpdateAffected(tx.t.workspaces.On(tx.tx).With(WorkspaceID, id).
-			Set(WorkspaceTextExtensions, value).Set(WorkspaceUpdatedAt, time.Now().Unix()))
+			Set(WorkspaceTextExtensions, value).Set(WorkspaceUpdatedAt, s.now.Now().Unix()))
 		if err != nil {
 			return err
 		}
@@ -206,7 +206,7 @@ func (s *Store) SetWorkspaceProvider(ctx context.Context, id int64, provider str
 			value = p.ID
 		}
 		n, err := dao.UpdateAffected(tx.t.workspaces.On(tx.tx).With(WorkspaceID, id).
-			Set(WorkspaceProviderID, value).Set(WorkspaceUpdatedAt, time.Now().Unix()))
+			Set(WorkspaceProviderID, value).Set(WorkspaceUpdatedAt, s.now.Now().Unix()))
 		if err != nil {
 			return err
 		}
@@ -225,7 +225,7 @@ func (s *Store) SetWorkspaceSchema(ctx context.Context, id int64, path string) e
 	}
 	return s.Write(ctx, func(tx *Tx) error {
 		n, err := dao.UpdateAffected(tx.t.workspaces.On(tx.tx).With(WorkspaceID, id).
-			Set(WorkspaceSchemaPath, value).Set(WorkspaceUpdatedAt, time.Now().Unix()))
+			Set(WorkspaceSchemaPath, value).Set(WorkspaceUpdatedAt, s.now.Now().Unix()))
 		if err != nil {
 			return err
 		}
@@ -275,7 +275,7 @@ func (s *Store) Workspaces(ctx context.Context) ([]WorkspaceInfo, error) {
 
 // AddWorkspace creates a workspace with its patterns, in one transaction.
 func (s *Store) AddWorkspace(ctx context.Context, name, root string, include, exclude []string) (Workspace, error) {
-	now := time.Now().Unix()
+	now := s.now.Now().Unix()
 	uid, err := newUID()
 	if err != nil {
 		return Workspace{}, err
@@ -320,7 +320,7 @@ func (s *Store) SetWorkspacePatterns(ctx context.Context, id int64, include, exc
 			includeEmpty = 1
 		}
 		n, err := dao.UpdateAffected(tx.t.workspaces.On(tx.tx).With(WorkspaceID, id).
-			Set(WorkspaceIncludeEmpty, includeEmpty).Set(WorkspaceUpdatedAt, time.Now().Unix()))
+			Set(WorkspaceIncludeEmpty, includeEmpty).Set(WorkspaceUpdatedAt, s.now.Now().Unix()))
 		if err != nil {
 			return err
 		}
@@ -340,7 +340,7 @@ func (s *Store) SetWorkspaceExclude(ctx context.Context, id int64, exclude []str
 	return s.Write(ctx, func(tx *Tx) error {
 		// the row's update finds the workspace; then its excludes go, and the new ones are written
 		n, err := dao.UpdateAffected(tx.t.workspaces.On(tx.tx).With(WorkspaceID, id).
-			Set(WorkspaceUpdatedAt, time.Now().Unix()))
+			Set(WorkspaceUpdatedAt, s.now.Now().Unix()))
 		if err == nil && n == 0 {
 			return fmt.Errorf("%w: %d", ErrNoWorkspace, id)
 		}
@@ -358,7 +358,7 @@ func (s *Store) SetWorkspaceExclude(ctx context.Context, id int64, exclude []str
 func (s *Store) RenameWorkspace(ctx context.Context, id int64, name string) error {
 	return s.Write(ctx, func(tx *Tx) error {
 		n, err := dao.UpdateAffected(tx.t.workspaces.On(tx.tx).With(WorkspaceID, id).
-			Set(WorkspaceName, name).Set(WorkspaceUpdatedAt, time.Now().Unix()))
+			Set(WorkspaceName, name).Set(WorkspaceUpdatedAt, s.now.Now().Unix()))
 		if err != nil {
 			return taken(err)
 		}
@@ -386,7 +386,7 @@ func (s *Store) RemoveWorkspace(ctx context.Context, id int64) error {
 
 func taken(err error) error {
 	if errors.Is(err, dao.ErrDuplicate) {
-		return fmt.Errorf("%w: %v", ErrTaken, err)
+		return fmt.Errorf("%w: %w", ErrTaken, err)
 	}
 	return err
 }

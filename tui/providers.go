@@ -239,7 +239,6 @@ func (h *Host) startRemoveProvider(i int) {
 	if !ok {
 		return
 	}
-	h.removingProvider = p.name
 	ask := "Remove the provider " + p.name + "? Its key, its usage and its log go. "
 	var sibling string
 	for _, o := range h.providerList {
@@ -247,16 +246,18 @@ func (h *Host) startRemoveProvider(i int) {
 			sibling = o.name
 		}
 	}
+	q := Question{Title: "remove the provider?", OnYes: func() { h.removeProviderConfirmed(p.name) }}
 	switch {
 	case h.activeProvider != "" && h.activeProvider != p.name:
-		h.set("App.providerRemoveQuestion", ask+"Its model's vectors go once no workspace uses them.")
+		q.Text = ask + "Its model's vectors go once no workspace uses them."
 	case sibling != "":
-		h.set("App.providerRemoveQuestion", ask+fmt.Sprintf("%s keeps its vectors: %s serves it too.", p.model, sibling))
+		q.Text = ask + fmt.Sprintf("%s keeps its vectors: %s serves it too.", p.model, sibling)
 	default:
-		h.set("App.providerRemoveQuestion", ask+"Semantic search goes off, and "+p.model+"'s vectors are deleted: counting them…")
-		h.countRemoved(p)
+		q.Text = ask + "Semantic search goes off, and " + p.model + "'s vectors are deleted: counting them…"
+		h.countRemoved(p, h.ask(q))
+		return
 	}
-	h.open("providerRemove")
+	h.ask(q)
 }
 
 // providerFamily is the embedding family a provider's kind embeds under: an Ollama Cloud
@@ -269,8 +270,8 @@ func providerFamily(kind string) string {
 }
 
 // countRemoved says, in the removal's question, how many of p's model's vectors it deletes, and in
-// how many workspaces.
-func (h *Host) countRemoved(p providerRow) {
+// how many workspaces, while the question is still open.
+func (h *Host) countRemoved(p providerRow, asked Asked) {
 	names := make([]string, len(h.wsList))
 	for i, w := range h.wsList {
 		names[i] = w.name
@@ -299,17 +300,13 @@ func (h *Host) countRemoved(p providerRow) {
 		}
 		return a
 	}, func(a answer) {
-		if h.removingProvider != p.name {
-			return
-		}
-		h.set("App.providerRemoveQuestion", fmt.Sprintf("Remove the provider %s? Its key, its usage and its log go. "+
+		asked.Say(fmt.Sprintf("Remove the provider %s? Its key, its usage and its log go. "+
 			"Semantic search goes off, and %s's %d vectors (%s) in %d workspaces are deleted.",
 			p.name, p.model, a.vectors, bytesText(a.bytes), a.spaces))
 	})
 }
 
-func (h *Host) removeProviderConfirmed() {
-	name := h.removingProvider
+func (h *Host) removeProviderConfirmed(name string) {
 	do(h, func(ctx context.Context) error {
 		_, err := h.call(ctx, "embedding.remove", name)
 		return err

@@ -100,8 +100,7 @@ func (h *Host) startRestart() {
 			q += " as autodoc " + installed + ", the one installed."
 		}
 		q += " Indexing and embedding carry on where they stopped; every client reconnects."
-		h.set("App.restartQuestion", q)
-		h.open("restartBackend")
+		h.ask(Question{Title: "restart the backend?", Text: q, OnYes: h.restartConfirmed})
 	})
 }
 

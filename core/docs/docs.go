@@ -30,7 +30,7 @@ var (
 	// ErrCommitted is a write that landed, then a follow-up step failed (Committed, -32066): the
 	// change took effect but no version can be promised. The client reads the document and compares;
 	// it never sends the write again.
-	ErrCommitted = errors.New("docs: the write landed, then a follow-up step failed")
+	ErrCommitted = errs.Sentinel(errs.ErrPrecondition, "docs: the write landed, then a follow-up step failed")
 
 	// ErrNotEligible is a path the workspace does not index (outside include, inside exclude):
 	// AutoDoc's apps edit files, not every file under the root.
@@ -145,7 +145,7 @@ func (d *Docs) ReadRaw(ctx context.Context, path string) (Doc, error) {
 	if err != nil {
 		return Doc{}, err
 	}
-	if d.derives(path) && !textBytes(doc.Content) {
+	if d.derives(path) && !kind.Textual(doc.Content) {
 		return Doc{}, fmt.Errorf("%w: %s is not UTF-8 text", ErrNotEligible, path)
 	}
 	return doc, nil
@@ -160,12 +160,28 @@ func (d *Docs) rawRefused(path string) error {
 	return nil
 }
 
-// textBytes reports whether b is text: UTF-8 with no NUL.
-func textBytes(b []byte) bool { return utf8.Valid(b) && bytes.IndexByte(b, 0) < 0 }
-
 // readBytes reads the file at path, stat'ed before and after and read again when it changed in
 // between, so the version never names other bytes than the ones returned.
 func (d *Docs) readBytes(ctx context.Context, path string) (Doc, error) {
+	doc, err := d.steady(ctx, path, MaxSize, func(vfs.FileInfo) ([]byte, bool, error) {
+		r, err := d.fsys.Open(ctx, path, 0)
+		if err != nil {
+			return nil, false, err
+		}
+		content, err := io.ReadAll(io.LimitReader(r, MaxSize+1))
+		_ = r.Close()
+		return content, len(content) <= MaxSize, err // longer: it grew after the Stat
+	})
+	if err == nil && d.kindOf(path).IsText() && !kind.Textual(doc.Content) {
+		return Doc{}, fmt.Errorf("%w: %s is not UTF-8 text", ErrNotEligible, path)
+	}
+	return doc, err
+}
+
+// steady reads path with read between two stats, and again while its version moves in between
+// (or read reports it should), so the version returned names the bytes returned. A file over limit
+// is refused before it is read.
+func (d *Docs) steady(ctx context.Context, path string, limit int64, read func(vfs.FileInfo) ([]byte, bool, error)) (Doc, error) {
 	for attempt := 0; ; attempt++ {
 		before, err := d.fsys.Stat(ctx, path)
 		if err != nil {
@@ -174,15 +190,10 @@ func (d *Docs) readBytes(ctx context.Context, path string) (Doc, error) {
 		if !before.IsRegular() {
 			return Doc{}, fmt.Errorf("docs: %s: %w", path, vfs.ErrNotExist)
 		}
-		if before.Size > MaxSize {
+		if before.Size > limit {
 			return Doc{}, fmt.Errorf("%w: %s is %d bytes", ErrTooLarge, path, before.Size)
 		}
-		r, err := d.fsys.Open(ctx, path, 0)
-		if err != nil {
-			return Doc{}, err
-		}
-		content, err := io.ReadAll(io.LimitReader(r, MaxSize+1))
-		_ = r.Close()
+		content, whole, err := read(before)
 		if err != nil {
 			return Doc{}, err
 		}
@@ -190,10 +201,7 @@ func (d *Docs) readBytes(ctx context.Context, path string) (Doc, error) {
 		if err != nil {
 			return Doc{}, err
 		}
-		if after.Version == before.Version && len(content) <= MaxSize {
-			if d.kindOf(path).IsText() && (!utf8.Valid(content) || bytes.IndexByte(content, 0) >= 0) {
-				return Doc{}, fmt.Errorf("%w: %s is not UTF-8 text", ErrNotEligible, path)
-			}
+		if after.Version == before.Version && whole {
 			return Doc{Content: content, Version: after.Version}, nil
 		}
 		if attempt == 4 {
@@ -222,7 +230,7 @@ func (d *Docs) WriteRaw(ctx context.Context, path string, content []byte, want v
 	if err := d.rawRefused(path); err != nil {
 		return "", err
 	}
-	if d.derives(path) && !textBytes(content) {
+	if d.derives(path) && !kind.Textual(content) {
 		return "", fmt.Errorf("%w: %s is not UTF-8 text", ErrNotEligible, path)
 	}
 	return d.write(ctx, path, content, want)
@@ -233,7 +241,7 @@ func (d *Docs) write(ctx context.Context, path string, content []byte, want vfs.
 	if len(content) > MaxSize {
 		return "", fmt.Errorf("%w: %d bytes", ErrTooLarge, len(content))
 	}
-	if d.kindOf(path).IsText() && (!utf8.Valid(content) || bytes.IndexByte(content, 0) >= 0) {
+	if d.kindOf(path).IsText() && !kind.Textual(content) {
 		return "", fmt.Errorf("%w: %s is not UTF-8 text", ErrNotEligible, path)
 	}
 	var fi vfs.FileInfo
@@ -294,7 +302,7 @@ func (d *Docs) Remove(ctx context.Context, path string, want vfs.Version) error 
 // cannot explain.
 func committed(v vfs.Version, err error) (vfs.Version, error) {
 	if errors.Is(err, vfs.ErrCommitted) {
-		return "", fmt.Errorf("%w: %v", ErrCommitted, err)
+		return "", fmt.Errorf("%w: %w", ErrCommitted, err)
 	}
 	return v, err
 }
@@ -302,39 +310,18 @@ func committed(v vfs.Version, err error) (vfs.Version, error) {
 // readDerived returns a derived document's text with the version of the file it was made of,
 // stat'ed before and after as Read does. Text over MaxSize is cut to fit one message (excerpt).
 func (d *Docs) readDerived(ctx context.Context, path string) (Doc, error) {
-	for attempt := 0; ; attempt++ {
-		before, err := d.fsys.Stat(ctx, path)
+	doc, err := d.steady(ctx, path, derived.MaxContainer, func(fi vfs.FileInfo) ([]byte, bool, error) {
+		text, err := derived.Text(ctx, d.reg, d.fsys, path, fi.Size)
 		if err != nil {
-			return Doc{}, err
-		}
-		if !before.IsRegular() {
-			return Doc{}, fmt.Errorf("docs: %s: %w", path, vfs.ErrNotExist)
-		}
-		if before.Size > derived.MaxContainer {
-			return Doc{}, fmt.Errorf("%w: %s is %d bytes", ErrTooLarge, path, before.Size)
-		}
-		text, err := derived.Text(ctx, d.reg, d.fsys, path, before.Size)
-		if err != nil {
-			return Doc{}, err
+			return nil, false, err
 		}
 		content, err := excerpt(text, kind.Label(path))
-		if err != nil {
-			return Doc{}, err
-		}
-		after, err := d.fsys.Stat(ctx, path)
-		if err != nil {
-			return Doc{}, err
-		}
-		if after.Version == before.Version {
-			if !utf8.Valid(content) || bytes.IndexByte(content, 0) >= 0 {
-				return Doc{}, fmt.Errorf("%w: %s: its derived text is not UTF-8", derived.ErrRefused, path)
-			}
-			return Doc{Content: content, Version: after.Version}, nil
-		}
-		if attempt == 4 {
-			return Doc{}, fmt.Errorf("docs: %s keeps changing while it is read: %w", path, errs.ErrTimeout)
-		}
+		return content, true, err
+	})
+	if err == nil && !kind.Textual(doc.Content) {
+		return Doc{}, fmt.Errorf("%w: %s: its derived text is not UTF-8", derived.ErrRefused, path)
 	}
+	return doc, err
 }
 
 // TruncatedMark begins the last line of a derived text cut to fit one read. The line is AutoDoc's,

@@ -107,7 +107,7 @@ func TestResetAndANewEdgeDockThePanels(t *testing.T) {
 	d, r := runShellTUI(t, map[string]string{"tui.explorer.float": "50,25,30,50", "tui.links.float": "10,10,30,50", "tui.terminal.float": "0,50,100,30"})
 	onLoop(r, func() bool { r.h.togglePanel("explorer"); return true })
 	r.s.WaitFor(t, "the explorer floating mid-screen", func(sc string) bool { _, c := panelAt(sc, "explorer"); return c >= 45 })
-	onLoop(r, func() bool { r.h.setExplorerEdge(1); return true }) // right
+	onLoop(r, func() bool { r.h.choosePrefNamed(prefExplorer, 1); return true }) // right
 	storedPref(t, d, r, "tui.explorer.float", "")
 	onLoop(r, func() bool { r.h.setTerminalEdge(indexOf(termEdges, "top")); return true })
 	storedPref(t, d, r, "tui.terminal.float", "")
@@ -121,7 +121,7 @@ func TestResetAndANewEdgeDockThePanels(t *testing.T) {
 // App.panelResized takes a panel's name and two whole numbers, and refuses anything else, naming it.
 func TestPanelResizedTakesANameAndTwoWholeNumbers(t *testing.T) {
 	var got []any
-	h := stringAndTwoNumbers("App.panelResized", "a panel and its size and length", func(p string, s, l int) { got = []any{p, s, l} })
+	h := stringAndTwoNumbers("a panel and its size and length", func(p string, s, l int) { got = []any{p, s, l} }).handler("App.panelResized")
 	str := func(v string) qml.SpecValue { return qml.SpecValue{Kind: qml.SpecValueString, Raw: v} }
 	num := func(v string) qml.SpecValue { return qml.SpecValue{Kind: qml.SpecValueNumber, Raw: v} }
 	if err := h([]qml.SpecValue{str("agent"), num("60"), num("70")}); err != nil || len(got) != 3 || got[0] != "agent" || got[1] != 60 || got[2] != 70 {
@@ -131,10 +131,10 @@ func TestPanelResizedTakesANameAndTwoWholeNumbers(t *testing.T) {
 		args []qml.SpecValue
 		says string
 	}{
-		{[]qml.SpecValue{str("agent"), num("60")}, "takes a panel and its size and length"},
-		{[]qml.SpecValue{num("1"), num("60"), num("70")}, "takes a panel and its size and length"},
-		{[]qml.SpecValue{str("agent"), num("33.5"), num("70")}, "not 33.5 and 70"},
-		{[]qml.SpecValue{str("agent"), num("60"), num("7e1")}, "not 60 and 7e1"},
+		{[]qml.SpecValue{str("agent"), num("60")}, "App.panelResized takes a panel and its size and length"},
+		{[]qml.SpecValue{num("1"), num("60"), num("70")}, "App.panelResized takes a panel and its size and length"},
+		{[]qml.SpecValue{str("agent"), num("33.5"), num("70")}, "App.panelResized takes a panel and its size and length, not 33.5 and 70"},
+		{[]qml.SpecValue{str("agent"), num("60"), num("7e1")}, "App.panelResized takes a panel and its size and length, not 60 and 7e1"},
 	} {
 		got = nil
 		if err := h(c.args); err == nil || !strings.Contains(err.Error(), c.says) || got != nil {

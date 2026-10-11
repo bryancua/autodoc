@@ -4,33 +4,30 @@ import (
 	"context"
 	"strings"
 	"testing"
-
-	"github.com/yongjohnlee80/golib/decl"
-	"github.com/yongjohnlee80/golib/parse/qml"
 )
 
 // fake is a feature that records what it hears.
 type fake struct {
 	name  string
 	state map[string]any
-	cmds  map[string]decl.HandlerFunc
+	cmds  map[string]Command
 	heard []string
 	kinds []string
 }
 
-func (f *fake) Name() string                          { return f.name }
-func (f *fake) State() map[string]any                 { return f.state }
-func (f *fake) Commands() map[string]decl.HandlerFunc { return f.cmds }
-func (f *fake) Connected()                            { f.heard = append(f.heard, "connected") }
-func (f *fake) Entered(ws string)                     { f.heard = append(f.heard, "entered "+ws) }
-func (f *fake) Kinds() []string                       { return f.kinds }
-func (f *fake) Event(kind, ws, detail string)         { f.heard = append(f.heard, kind+" "+ws+" "+detail) }
+func (f *fake) Name() string                  { return f.name }
+func (f *fake) State() map[string]any         { return f.state }
+func (f *fake) Commands() map[string]Command  { return f.cmds }
+func (f *fake) Connected()                    { f.heard = append(f.heard, "connected") }
+func (f *fake) Entered(ws string)             { f.heard = append(f.heard, "entered "+ws) }
+func (f *fake) Kinds() []string               { return f.kinds }
+func (f *fake) Event(kind, ws, detail string) { f.heard = append(f.heard, kind+" "+ws+" "+detail) }
 
-func noop(args []qml.SpecValue) error { return nil }
+var noop = none(func() {})
 
 func TestTheRegistryMergesFeatures(t *testing.T) {
-	a := &fake{name: "a", state: map[string]any{"App.a": 1}, cmds: map[string]decl.HandlerFunc{"App.doA": noop}}
-	b := &fake{name: "b", state: map[string]any{"App.b": "x"}, cmds: map[string]decl.HandlerFunc{"App.doB": noop}, kinds: []string{"b.changed"}}
+	a := &fake{name: "a", state: map[string]any{"App.a": 1}, cmds: map[string]Command{"App.doA": noop}}
+	b := &fake{name: "b", state: map[string]any{"App.b": "x"}, cmds: map[string]Command{"App.doB": noop}, kinds: []string{"b.changed"}}
 	r, err := newRegistry(a, b)
 	if err != nil {
 		t.Fatal(err)
@@ -57,10 +54,10 @@ func TestTheRegistryMergesFeatures(t *testing.T) {
 func TestTheRegistryRefusesANameTwoFeaturesClaim(t *testing.T) {
 	for name, b := range map[string]*fake{
 		"a source":                    {name: "b", state: map[string]any{"App.a": 2}},
-		"a command":                   {name: "b", cmds: map[string]decl.HandlerFunc{"App.doA": noop}},
-		"a source named as a command": {name: "b", cmds: map[string]decl.HandlerFunc{"App.a": noop}},
+		"a command":                   {name: "b", cmds: map[string]Command{"App.doA": noop}},
+		"a source named as a command": {name: "b", cmds: map[string]Command{"App.a": noop}},
 	} {
-		a := &fake{name: "a", state: map[string]any{"App.a": 1}, cmds: map[string]decl.HandlerFunc{"App.doA": noop}}
+		a := &fake{name: "a", state: map[string]any{"App.a": 1}, cmds: map[string]Command{"App.doA": noop}}
 		if _, err := newRegistry(a, b); err == nil || !strings.Contains(err.Error(), "both a's and b's") {
 			t.Errorf("%s claimed twice: %v", name, err)
 		}

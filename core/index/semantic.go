@@ -21,6 +21,7 @@ import (
 	"github.com/yongjohnlee80/golib/search/embed"
 	"github.com/yongjohnlee80/golib/search/vector"
 
+	"github.com/yongjohnlee80/autodoc/core/clock"
 	"github.com/yongjohnlee80/autodoc/core/store"
 )
 
@@ -41,15 +42,19 @@ var ErrModelInUse = errs.Sentinel(errs.ErrPrecondition, "index: the model is in 
 
 // ErrEmbedFailed is a semantic query whose text the provider could not embed (EmbedFailed,
 // -32067): retry later, or search lexically.
-var ErrEmbedFailed = errors.New("index: the query could not be embedded")
+// EmbedFailedMessage is what a search's semantic_error says when its query could not be embedded:
+// a constant, so a client reads the same words whatever the provider said.
+const EmbedFailedMessage = "index: the query could not be embedded"
+
+var ErrEmbedFailed = errs.Sentinel(errs.ErrPrecondition, "index: the query could not be embedded")
 
 // ErrSwitching is a semantic query while a new model fills: the old model is offline, and the new
 // one does not cover every chunk yet (Switching, -32069). Search lexically until it does.
-var ErrSwitching = errors.New("index: a new model is filling; search by words until it is ready")
+var ErrSwitching = errs.Sentinel(errs.ErrPrecondition, "index: a new model is filling; search by words until it is ready")
 
 // errOffline is embedding with a model other than the target's: the one a filling target
 // replaces, offline for the switch.
-var errOffline = errors.New("index: the model is offline while a new one fills")
+var errOffline = errs.Sentinel(errs.ErrPrecondition, "index: the model is offline while a new one fills")
 
 // The semantic tier's constants (ADR 0204 §4.4, §4.5).
 const (
@@ -109,6 +114,7 @@ type semantic struct {
 	// refused holds the texts a provider rejected (fingerprint, then text hash), and until when they
 	// are set aside: their documents answer lexically, and the other texts go on. The worker's own.
 	refused     map[string]refusalEntry
+	now         clock.Clock // a refusal's retry_at, which index.status reports
 	fillStart   time.Time
 	fillTexts   int64
 	fillTotal   int64
@@ -121,8 +127,8 @@ type semantic struct {
 	beforeFetch func()
 }
 
-func newSemantic(target embed.Provider) *semantic {
-	return &semantic{target: target, vectors: make(chan vecBatch), wake: make(chan struct{}, 1),
+func newSemantic(target embed.Provider, now clock.Clock) *semantic {
+	return &semantic{target: target, now: now, vectors: make(chan vecBatch), wake: make(chan struct{}, 1),
 		refused: map[string]refusalEntry{}}
 }
 
@@ -635,7 +641,7 @@ func (x *Indexer) embedLoop(ctx context.Context) {
 			if ctx.Err() == nil {
 				logger.Warning(x.opts.Logger, err, logger.Fields{"event": "embedding.batch.failed", "model": m.target.Model().Fingerprint(), "retry_after_ms": wait.Milliseconds()})
 			}
-			if !sleepCtx(ctx, wait) {
+			if !clock.Sleep(ctx, wait) {
 				return
 			}
 			wait = min(2*wait, time.Minute)
@@ -779,7 +785,7 @@ func (m *semantic) embedSome(ctx context.Context, p embed.Provider, fp string, d
 	defer m.mu.Unlock()
 	for _, r := range rejected {
 		t := texts[r.Index]
-		m.refused[fp+"\x00"+string(hashes[r.Index])] = refusalEntry{err: r.Err, retryAt: time.Now().Add(refusedFor), bytes: len(t), tokens: chunk.Tokens([]byte(t))}
+		m.refused[fp+"\x00"+string(hashes[r.Index])] = refusalEntry{err: r.Err, retryAt: m.now.Now().Add(refusedFor), bytes: len(t), tokens: chunk.Tokens([]byte(t))}
 	}
 	for i, v := range vecs {
 		if v == nil {
@@ -795,7 +801,7 @@ func (m *semantic) embedSome(ctx context.Context, p embed.Provider, fp string, d
 func (m *semantic) skip(fp string) map[string]bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	now := time.Now()
+	now := m.now.Now()
 	out := map[string]bool{}
 	for k, entry := range m.refused {
 		if now.After(entry.retryAt) {
@@ -1024,17 +1030,6 @@ func (s *Store) semanticHits(tx *store.Tx, m *semantic, fp string, qvec []float3
 	return out, nil
 }
 
-func sleepCtx(ctx context.Context, d time.Duration) bool {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-t.C:
-		return true
-	}
-}
-
 // EmbeddingStatus is index.status's embeddings (ADR 0204 §4.7).
 type EmbeddingStatus struct {
 	Provider string // the target's provider
@@ -1125,7 +1120,7 @@ func (x *Indexer) refusedTexts(ctx context.Context, fp, onlyHash string) ([]Refu
 	m.mu.Lock()
 	entries := make(map[string]refusalEntry)
 	for key, entry := range m.refused {
-		if f, hash, ok := strings.Cut(key, "\x00"); ok && f == fp && (onlyHash == "" || onlyHash == hash) && time.Now().Before(entry.retryAt) {
+		if f, hash, ok := strings.Cut(key, "\x00"); ok && f == fp && (onlyHash == "" || onlyHash == hash) && m.now.Now().Before(entry.retryAt) {
 			entries[hash] = entry
 		}
 	}

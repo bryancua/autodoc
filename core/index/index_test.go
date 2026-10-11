@@ -191,7 +191,7 @@ func (e *env) indexedAt(p string) {
 		if err != nil {
 			return false
 		}
-		v, ok := e.store.Version(p)
+		v, ok, _ := e.store.Version(context.Background(), p)
 		return ok && v == fi.Version && e.pendingJobs() == 0
 	})
 }
@@ -397,9 +397,9 @@ func TestReindexReparses(t *testing.T) {
 	e.ix.Touch("a.md")
 	e.indexedAt("a.md")
 	before := e.ix.Parses()
-	e.ix.Reindex("a.md")
+	e.ix.Reindex(context.Background(), "a.md")
 	e.eventually("the forced reparse", func() bool { return e.ix.Parses() == before+1 })
-	e.ix.Reindex("")
+	e.ix.Reindex(context.Background(), "")
 	e.eventually("the forced reparse of everything", func() bool { return e.ix.Parses() == before+2 })
 }
 
@@ -466,7 +466,7 @@ func TestDeletedAndIneligibleLeave(t *testing.T) {
 	}
 	e.ix.Touch("a.md")
 	e.ix.Touch("b.md")
-	e.eventually("both deleted", func() bool { return len(e.store.PathsUnder(".")) == 0 })
+	e.eventually("both deleted", func() bool { return len(indexedPaths(e.store.PathsUnder(context.Background(), "."))) == 0 })
 	changes, _, _, err := e.store.Changes(ctx, 0, 100)
 	if err != nil {
 		t.Fatal(err)
@@ -827,7 +827,7 @@ func TestFollowerIntoIndexer(t *testing.T) {
 	if err := e.fsys.Remove(ctx, "a.md"); err != nil {
 		t.Fatal(err)
 	}
-	e.eventually("a.md deleted", func() bool { _, ok := e.store.Version("a.md"); return !ok })
+	e.eventually("a.md deleted", func() bool { _, ok, _ := e.store.Version(context.Background(), "a.md"); return !ok })
 	changes, _, _, _ := e.store.Changes(ctx, 0, 100)
 	var ops []string
 	for _, c := range changes {
@@ -851,7 +851,7 @@ func TestOversizeFileLeavesAndWaits(t *testing.T) {
 	e.write("a.md", strings.Repeat("x", MaxFileSize+1))
 	e.ix.Touch("a.md")
 	e.eventually("the oversize note to leave", func() bool {
-		_, indexed := e.store.Version("a.md")
+		_, indexed, _ := e.store.Version(context.Background(), "a.md")
 		ok, _, lastErr := e.job("a.md")
 		return !indexed && ok && strings.Contains(lastErr, "over")
 	})
@@ -957,14 +957,17 @@ func TestReindexEverythingFindsNewFiles(t *testing.T) {
 	e.indexedAt("a.md")
 	e.write("new.md", "blueberry\n")
 	time.Sleep(100 * time.Millisecond)
-	if _, ok := e.store.Version("new.md"); ok {
+	if _, ok, _ := e.store.Version(context.Background(), "new.md"); ok {
 		t.Fatal("the follower found new.md on its own: this test would show nothing")
 	}
 	parses := e.ix.Parses()
-	e.ix.Reindex("")
+	e.ix.Reindex(context.Background(), "")
 	e.indexedAt("new.md")
 	e.eventually("a.md re-parsed as well", func() bool { return e.ix.Parses() >= parses+2 })
 	if len(e.match("blueberry")) != 1 {
 		t.Error("new.md is not searchable")
 	}
 }
+
+// indexedPaths is PathsUnder's paths, for a test whose store reads.
+func indexedPaths(ps []string, _ error) []string { return ps }

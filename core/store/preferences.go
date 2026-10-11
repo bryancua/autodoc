@@ -2,17 +2,16 @@ package store
 
 import (
 	"context"
-	"errors"
-	"time"
 
 	"github.com/yongjohnlee80/golib/dao"
+	"github.com/yongjohnlee80/golib/errs"
 )
 
 // PREFERENCES — what a client keeps between runs, by name: the store's, not a
 // workspace's, so they are the same whichever workspace is open.
 
 // ErrNoPreferenceName is a preference with no name.
-var ErrNoPreferenceName = errors.New("store: a preference needs a name")
+var ErrNoPreferenceName = errs.Sentinel(errs.ErrInvalidArgument, "store: a preference needs a name")
 
 // Preferences are every preference the store holds, by name.
 func (s *Store) Preferences(ctx context.Context) (map[string]string, error) {
@@ -28,7 +27,7 @@ func (s *Store) Preferences(ctx context.Context) (map[string]string, error) {
 }
 
 // ErrOwnedPreference is a write, as a plain preference, of one a verb of its own sets.
-var ErrOwnedPreference = errors.New("store: this preference is set by its own verb")
+var ErrOwnedPreference = errs.Sentinel(errs.ErrInvalidArgument, "store: this preference is set by its own verb")
 
 // Owned reports whether name is a preference the daemon sets through a verb of its own (the
 // embedding provider, the ranker and its window): the daemon holds what it names, set up, and a
@@ -49,6 +48,6 @@ func (s *Store) SetPreference(ctx context.Context, name, value string) error {
 	}
 	return s.Write(ctx, func(tx *Tx) error {
 		return tx.t.preferences.On(tx.tx).Set(PrefName, name).Set(PrefValue, value).
-			Set(PrefUpdatedAt, time.Now().Unix()).Upsert()
+			Set(PrefUpdatedAt, s.now.Now().Unix()).Upsert()
 	})
 }

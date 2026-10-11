@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/yongjohnlee80/golib/dao"
 )
@@ -93,7 +92,7 @@ func (s *Store) Configure(ctx context.Context, id int64, c Changes) error {
 		return err
 	}
 	return s.Write(ctx, func(tx *Tx) error {
-		row := tx.t.workspaces.On(tx.tx).With(WorkspaceID, id).Set(WorkspaceUpdatedAt, time.Now().Unix())
+		row := tx.t.workspaces.On(tx.tx).With(WorkspaceID, id).Set(WorkspaceUpdatedAt, s.now.Now().Unix())
 		if c.Name != nil {
 			row = row.Set(WorkspaceName, *c.Name)
 		}

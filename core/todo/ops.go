@@ -15,6 +15,7 @@ import (
 	"github.com/yongjohnlee80/golib/logger"
 	"github.com/yongjohnlee80/golib/vfs"
 
+	"github.com/yongjohnlee80/autodoc/core/paths"
 	"github.com/yongjohnlee80/autodoc/core/schema"
 )
 
@@ -92,7 +93,7 @@ func (m *Manager) List(ctx context.Context, at At, opts ListOpts) (Listing, erro
 				scanned = true
 			}
 			for _, f := range active {
-				if f.path == b || strings.HasPrefix(f.path, b+"/") {
+				if paths.Under(f.path, b) {
 					files = append(files, f)
 				}
 			}
@@ -425,7 +426,7 @@ func (m *Manager) RemoveMalformed(ctx context.Context, at At, p string) error {
 	case derr == nil:
 		return fmt.Errorf("%w: %s is a valid task: todos.remove removes it", ErrInvalid, p)
 	case strings.Contains(derr.Error(), automationRemoved):
-		return fmt.Errorf("%w: %s: %v; the daemon never deletes it", ErrInvalid, p, derr)
+		return fmt.Errorf("%w: %s: %w; the daemon never deletes it", ErrInvalid, p, derr)
 	}
 	c := Change{ID: strings.TrimSuffix(path.Base(p), ".md"), Kind: KindRemoveMalformed, Reason: derr.Error(), FromRev: rev(doc.Content)}
 	return m.remove(ctx, st, c, p, doc.Version)

@@ -270,7 +270,7 @@ func (s *Server) indexVerbs() []module.Verb {
 		module.Handle(module.Contract{Verb: "index.reindex", Since: 1, Scope: ws, Audience: user,
 			Errors: []int64{CodeNoSuchWorkspace, CodeNotFound}, Doc: "Indexes one file again; a held file is refused, naming the way out."},
 			func(ctx context.Context, p indexPath) (any, error) {
-				return nil, workspaceOf(ctx).Index.Reindex(p.Path)
+				return nil, workspaceOf(ctx).Index.Reindex(ctx, p.Path)
 			}),
 		module.Handle(module.Contract{Verb: "index.models", Since: 4, Scope: ws, Audience: user,
 			Result: "[{fp, provider, name, dims, state, vectors, f32_bytes, bits_bytes, key_bytes}]", Errors: []int64{CodeNoSuchWorkspace},

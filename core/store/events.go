@@ -2,10 +2,9 @@ package store
 
 import (
 	"context"
-	"errors"
-	"time"
 
 	"github.com/yongjohnlee80/golib/dao"
+	"github.com/yongjohnlee80/golib/errs"
 )
 
 // EventsKept is how many events the log keeps: a client further behind takes a fresh snapshot.
@@ -13,7 +12,7 @@ const EventsKept = 1000
 
 // ErrEventsExpired is a cursor older than the retained log, or newer than its head (another
 // store's): the client takes a snapshot and resumes from the head.
-var ErrEventsExpired = errors.New("store: the event cursor is outside the retained log")
+var ErrEventsExpired = errs.Sentinel(errs.ErrPrecondition, "store: the event cursor is outside the retained log")
 
 // AppendEvent logs one configuration or lifecycle change and prunes the log to EventsKept.
 func (s *Store) AppendEvent(ctx context.Context, e Event) (int64, error) {
@@ -21,7 +20,7 @@ func (s *Store) AppendEvent(ctx context.Context, e Event) (int64, error) {
 	err := s.Write(ctx, func(tx *Tx) error {
 		var err error
 		seq, err = tx.t.events.On(tx.tx).Set(EventKind, e.Kind).Set(EventWorkspace, e.Workspace).
-			Set(EventClient, e.Client).Set(EventDetail, e.Detail).Set(EventAt, time.Now().Unix()).Insert()
+			Set(EventClient, e.Client).Set(EventDetail, e.Detail).Set(EventAt, s.now.Now().Unix()).Insert()
 		if err != nil {
 			return err
 		}

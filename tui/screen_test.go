@@ -967,10 +967,13 @@ func TestEveryCommandRefusesArgumentsNotItsOwn(t *testing.T) {
 	s := qml.SpecValue{Kind: qml.SpecValueString, Raw: "x"}
 	// each list is one no command takes: a Host with no program would panic running any
 	bad := [][]qml.SpecValue{{s, b}, {b, b}, {b, b, b, b}, {frac}, {frac, s}, {s, s, s, b}, {s, s, s, s, b}}
-	for name, fn := range h.commands() {
+	for name, c := range h.commands() {
+		fn := c.handler(name)
 		for _, args := range bad {
 			if err := fn(args); err == nil {
 				t.Errorf("%s accepted %v", name, args)
+			} else if !strings.HasPrefix(err.Error(), name+" takes ") {
+				t.Errorf("%s refused %v without its name first: %v", name, args, err)
 			}
 		}
 	}
@@ -1238,24 +1241,30 @@ func TestEveryPreferenceIsKept(t *testing.T) {
 		})
 	}
 	post := func(fn func()) { r.h.p.Post(fn) }
-	post(func() { r.h.setMenuHiddenIndex(1) }) // no: shown
+	// a default chosen is kept, though it is in effect already: a later default does not move it
+	if m, err := d.db.Preferences(context.Background()); err != nil || m["tui.preview.images"] != "" {
+		t.Fatalf("the store already holds image previews: %v %v", m, err)
+	}
+	post(func() { r.h.choosePrefNamed(prefImages, 0) }) // yes, the default
+	stored("tui.preview.images", "true")
+	post(func() { r.h.choosePrefNamed(prefMenuHide, 1) }) // no: shown
 	stored("tui.menu.autohide", "false")
 	r.s.WaitForText(t, "the menu bar shows")
 	post(func() { r.h.toggleMenuBar() })
 	stored("tui.menu.autohide", "true")
-	post(func() { r.h.setStatusShownIndex(1) }) // no: hidden
+	post(func() { r.h.choosePrefNamed(prefStatus, 1) }) // no: hidden
 	stored("tui.status.shown", "false")
-	post(func() { r.h.setExplorerEdge(2) })
+	post(func() { r.h.choosePrefNamed(prefExplorer, 2) })
 	stored("tui.explorer.edge", "top")
-	post(func() { r.h.setLinksEdge(3) })
+	post(func() { r.h.choosePrefNamed(prefLinks, 3) })
 	stored("tui.links.edge", "bottom")
-	post(func() { r.h.setThemeIndex(1) })
+	post(func() { r.h.choosePrefNamed(themePref(r.h.gui), 1) })
 	stored("tui.theme", "light")
-	post(func() { r.h.setKeymapIndex(1) })
+	post(func() { r.h.choosePrefNamed(prefKeymap, 1) })
 	stored("tui.editor.keymap", "text")
 	post(func() { r.h.toggleKeymap() })
 	stored("tui.editor.keymap", "vim")
-	post(func() { r.h.setStatusShownIndex(0) }) // yes: shown, to read what follows
+	post(func() { r.h.choosePrefNamed(prefStatus, 0) }) // yes: shown, to read what follows
 	stored("tui.status.shown", "true")
 	post(func() { r.h.useTheme("paisley") })
 	r.s.WaitForText(t, `no theme "paisley"`)
@@ -1265,23 +1274,23 @@ func TestEveryPreferenceIsKept(t *testing.T) {
 		t.Fatalf("an unknown theme or keymap changed the preferences: %+v", p)
 	}
 	// the page and the notifications, from the dialog's choosers
-	post(func() { r.h.setWrapIndex(1) }) // no
+	post(func() { r.h.choosePrefNamed(prefWrap, 1) }) // no
 	stored("tui.editor.wrap", "false")
-	post(func() { r.h.setLineNumbersIndex(0) }) // yes
+	post(func() { r.h.choosePrefNamed(prefNumbers, 0) }) // yes
 	stored("tui.editor.linenumbers", "true")
-	post(func() { r.h.setLineNumbersIndex(5) }) // no such row: nothing
-	post(func() { r.h.setIndentMarksIndex(1) }) // the cursor's line
+	post(func() { r.h.choosePrefNamed(prefNumbers, 5) }) // no such row: nothing
+	post(func() { r.h.choosePrefNamed(prefIndent, 1) })  // the cursor's line
 	stored("tui.editor.indentmarks", "cursorLine")
 	post(func() { r.h.setIndentMarks("all") })
 	stored("tui.editor.indentmarks", "all")
-	post(func() { r.h.setIndentMarksIndex(3) }) // no such row: nothing
+	post(func() { r.h.choosePrefNamed(prefIndent, 3) }) // no such row: nothing
 	post(func() { r.h.setIndentMarks("tabs") })
 	r.s.WaitForText(t, `no indentation marks "tabs"`)
-	post(func() { r.h.setToastCorner(indexOf(corners, "top-right")) })
+	post(func() { r.h.choosePrefNamed(prefCorner, indexOf(corners, "top-right")) })
 	stored("tui.toast.corner", "top-right")
-	post(func() { r.h.setToastSeconds(9) }) // row 9: ten seconds
+	post(func() { r.h.choosePrefNamed(prefSeconds, 9) }) // row 9: ten seconds
 	stored("tui.toast.seconds", "10")
-	post(func() { r.h.setToastSeconds(10) }) // eleven: out of range, nothing
+	post(func() { r.h.choosePrefNamed(prefSeconds, 10) }) // eleven: out of range, nothing
 	if p := onLoop(r, func() prefs { return r.h.prefs }); p.toastSeconds != 10 || !p.lineNumbers || p.wrap || p.indentMarks != "all" {
 		t.Fatalf("after the choosers: %+v", p)
 	}
@@ -1539,7 +1548,7 @@ func TestRemovingAProviderSaysWhatItDeletes(t *testing.T) {
 		})
 	}
 	question := func() string {
-		return onLoop(r, func() string { v, _ := r.h.p.Tree().Source("App.providerRemoveQuestion"); return v.Raw })
+		return onLoop(r, func() string { v, _ := r.h.p.Tree().Source("App.askText"); return v.Raw })
 	}
 
 	ask("local", "local")
@@ -1547,7 +1556,7 @@ func TestRemovingAProviderSaysWhatItDeletes(t *testing.T) {
 		return strings.Contains(question(), "Semantic search goes off, and embedder's 2 vectors (") &&
 			strings.HasSuffix(question(), " in 1 workspaces are deleted.")
 	})
-	onLoop(r, func() bool { r.h.closeDialog("providerRemove"); return true })
+	onLoop(r, func() bool { r.h.closeDialog("confirm"); return true })
 
 	if _, err := d.db.AddProvider(ctx, store.ProviderSpec{Name: "twin", Kind: store.KindOllama, BaseURL: ollama.URL, Model: "embedder"}); err != nil {
 		t.Fatal(err)
@@ -1556,7 +1565,7 @@ func TestRemovingAProviderSaysWhatItDeletes(t *testing.T) {
 	r.s.WaitFor(t, "the twin keeps them", func(string) bool {
 		return strings.HasSuffix(question(), "embedder keeps its vectors: twin serves it too.")
 	})
-	onLoop(r, func() bool { r.h.closeDialog("providerRemove"); return true })
+	onLoop(r, func() bool { r.h.closeDialog("confirm"); return true })
 
 	ask("spare", "spare")
 	r.s.WaitFor(t, "another in use", func(string) bool {
@@ -1901,8 +1910,8 @@ func TestNotificationsAndTheStatusLine(t *testing.T) {
 	r.s.WaitFor(t, "the history closed", func(sc string) bool { return !strings.Contains(sc, "NOTIFICATION") })
 	// the top left, staying 5 seconds: kept, and applied
 	r.h.p.Post(func() {
-		r.h.setToastCorner(indexOf(corners, "top-left"))
-		r.h.setToastSeconds(4)
+		r.h.choosePrefNamed(prefCorner, indexOf(corners, "top-left"))
+		r.h.choosePrefNamed(prefSeconds, 4)
 	})
 	stored := func(name, want string) {
 		t.Helper()

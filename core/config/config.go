@@ -28,10 +28,12 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/yongjohnlee80/golib/errs"
 )
 
 // ErrInvalid is a configuration that cannot be used; the message says which setting and why.
-var ErrInvalid = errors.New("config: invalid")
+var ErrInvalid = errs.Sentinel(errs.ErrInvalidArgument, "config: invalid")
 
 // Config is the whole file, with defaults filled in.
 type Config struct {
@@ -119,7 +121,7 @@ func Load(file string) (*Config, error) {
 	case errors.As(err, &pe):
 		return nil, fmt.Errorf("config: %s: %w", file, err)
 	case err != nil:
-		return nil, fmt.Errorf("%w: %s: %v", ErrInvalid, file, err)
+		return nil, fmt.Errorf("%w: %s: %w", ErrInvalid, file, err)
 	}
 	if extra := md.Undecoded(); len(extra) > 0 {
 		keys := make([]string, len(extra))
@@ -180,7 +182,7 @@ func NormalizeWorkspace(w Workspace) (Workspace, error) {
 	}
 	for _, p := range append(append([]string{}, w.Include...), w.Exclude...) {
 		if err := ValidPattern(p); err != nil {
-			return w, fmt.Errorf("%w: workspace %q: pattern %q: %v", ErrInvalid, w.Name, p, err)
+			return w, fmt.Errorf("%w: workspace %q: pattern %q: %w", ErrInvalid, w.Name, p, err)
 		}
 	}
 	return w, nil
@@ -338,7 +340,7 @@ func xdgDir(configured, env, fallback string) (string, error) {
 		}
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", fmt.Errorf("%w: creating %s: %v", ErrInvalid, dir, err)
+		return "", fmt.Errorf("%w: creating %s: %w", ErrInvalid, dir, err)
 	}
 	return dir, nil
 }

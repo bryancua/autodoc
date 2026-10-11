@@ -34,7 +34,7 @@ func (e *env) remove(ps ...string) {
 		e.ix.Touch(p)
 	}
 	for _, p := range ps {
-		e.eventually(p+" gone", func() bool { _, ok := e.store.Version(p); return !ok })
+		e.eventually(p+" gone", func() bool { _, ok, _ := e.store.Version(context.Background(), p); return !ok })
 	}
 }
 
@@ -173,7 +173,7 @@ func TestRenameReresolves(t *testing.T) {
 	e.ix.Touch("old.md")
 	e.ix.Touch("new.md")
 	e.indexedAt("new.md")
-	e.eventually("old.md gone", func() bool { _, ok := e.store.Version("old.md"); return !ok })
+	e.eventually("old.md gone", func() bool { _, ok, _ := e.store.Version(context.Background(), "old.md"); return !ok })
 	eq(t, "a after", e.targets("a.md"), []string{"[[old]] -> -", "[p](old.md) -> -", "[[./old]] -> -"})
 	eq(t, "b after", e.targets("b.md"), []string{"[[new]] -> new.md", "[q](new.md) -> new.md", "[[./new]] -> new.md"})
 }

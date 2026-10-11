@@ -1,17 +1,16 @@
 package rpc
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 
 	golibrpc "github.com/yongjohnlee80/golib/server/rpc"
 	"github.com/yongjohnlee80/golib/vfs"
 
 	"github.com/yongjohnlee80/autodoc/core/docs"
+	"github.com/yongjohnlee80/autodoc/core/kind"
 	"github.com/yongjohnlee80/autodoc/core/module"
 )
 
@@ -59,8 +58,6 @@ func fileErr(err error) error {
 	return err
 }
 
-func isText(b []byte) bool { return utf8.Valid(b) && bytes.IndexByte(b, 0) < 0 }
-
 type (
 	filePath struct {
 		Path string `param:"path" doc:"absolute and clean"`
@@ -99,7 +96,7 @@ func (s *Server) fileVerbs() []module.Verb {
 			if err != nil {
 				return nil, fileErr(err)
 			}
-			if !isText(d.Content) {
+			if !kind.Textual(d.Content) {
 				return nil, errNotText
 			}
 			return &contentJSON{Content: d.Content, Version: string(d.Version)}, nil
@@ -114,7 +111,7 @@ func (s *Server) fileVerbs() []module.Verb {
 			if err != nil {
 				return nil, err
 			}
-			if !isText(p.Content) {
+			if !kind.Textual(p.Content) {
 				return nil, errNotText
 			}
 			write := s.files.Write

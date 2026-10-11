@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -116,6 +117,8 @@ type prefs struct {
 	agentEdge string
 	// recent are the files opened last, newest first (recent.go)
 	recent []recentDoc
+	// values are the features' own preferences (ValuePref), by name: read with Value
+	values map[string]string
 }
 
 func defaultPrefs() prefs { return defaultPrefsFor(false) }
@@ -123,14 +126,84 @@ func defaultPrefs() prefs { return defaultPrefsFor(false) }
 // defaultPrefsFor are the defaults of the terminal's UI, or of the GUI's: they differ in the
 // theme alone.
 func defaultPrefsFor(gui bool) prefs {
+	p := prefs{termEdge: "bottom", searchStages: allStagesChecked(),
+		agentEdge: defaultAgentEdge}
+	readRows(&p, nil, legacyPrefRows(nil, gui))
+	return p
+}
+
+// legacyPrefRows are the host's own preferences, one row each (prefspec.go): the GUI's theme or
+// the terminal's (gui), the default of each, and what a change does on h. Reading the store needs
+// no host: h is nil there, and the rows' Changed never runs.
+func legacyPrefRows(h *Host, gui bool) []PrefSpec {
 	theme := defaultTheme
 	if gui {
 		theme = defaultGUITheme
 	}
-	return prefs{theme: theme, menuHidden: true, explorerEdge: "left", linkEdge: "right", ruler: defaultRuler, keymap: "vim",
-		wrap: true, indentMarks: "off", images: true, aboutAtStart: true, updateCheck: true, toastCorner: "bottom-right", toastSeconds: defaultToastSeconds,
-		termEdge: "bottom", searchStages: allStagesChecked(),
-		agentEdge: defaultAgentEdge}
+	themeRow := choicePref(themePref(gui), theme, themeNames, func(p *prefs) *string { return &p.theme }).
+		chooser("App.themeIndex", "App.setThemeIndex")
+	themeRow.valid = func(v string) bool { return v != "" } // a theme this build lacks is kept, and the default drawn
+	seconds := make([]string, maxToastSeconds)
+	for i := range seconds {
+		seconds[i] = strconv.Itoa(i + 1)
+	}
+	toastSeconds := intPref(prefSeconds, defaultToastSeconds, 1, maxToastSeconds, func(p *prefs) *int { return &p.toastSeconds }).
+		chooser("App.toastSecondsIndex", "App.setToastSeconds")
+	toastSeconds.Choices = seconds
+	return []PrefSpec{
+		themeRow,
+		boolPref(prefMenuHide, true, func(p *prefs) *bool { return &p.menuHidden }).
+			chooser("App.menuHiddenIndex", "App.setMenuHiddenIndex").
+			shows(func(p prefs) map[string]any { return map[string]any{"App.menuAutoHide": p.menuHidden} }).
+			then(func(p prefs) { h.saidMenuBar(p.menuHidden) }),
+		boolPref(prefStatus, false, func(p *prefs) *bool { return &p.statusOn }).
+			chooser("App.statusShownIndex", "App.setStatusShownIndex"),
+		choicePref(prefExplorer, "left", edges, func(p *prefs) *string { return &p.explorerEdge }).
+			chooser("App.explorerEdgeIndex", "App.setExplorerEdge").
+			shows(func(p prefs) map[string]any { return map[string]any{"App.explorerEdge": p.explorerEdge} }).
+			then(func(prefs) { h.dockPanel("explorer") }), // a new edge is seen at once
+		choicePref(prefLinks, "right", edges, func(p *prefs) *string { return &p.linkEdge }).
+			chooser("App.linksEdgeIndex", "App.setLinksEdge").
+			shows(func(p prefs) map[string]any { return map[string]any{"App.linksEdge": p.linkEdge} }).
+			then(func(prefs) { h.dockPanel("links") }),
+		choicePref(prefKeymap, "vim", keymaps, func(p *prefs) *string { return &p.keymap }).
+			chooser("App.keymapIndex", "App.setKeymapIndex").
+			shows(func(p prefs) map[string]any {
+				return map[string]any{"App.keyset": keysetOf[p.keymap], "App.keymapVim": p.keymap == "vim", "App.keymapText": p.keymap == "text"}
+			}).
+			then(func(p prefs) { h.say("editor mode: " + keymapLabels[indexOf(keymaps, p.keymap)]) }),
+		boolPref(prefWrap, true, func(p *prefs) *bool { return &p.wrap }).
+			chooser("App.wrapIndex", "App.setWrapIndex").
+			shows(func(p prefs) map[string]any { return map[string]any{"App.editorWrap": p.wrap} }),
+		boolPref(prefNumbers, false, func(p *prefs) *bool { return &p.lineNumbers }).
+			chooser("App.lineNumbersIndex", "App.setLineNumbersIndex").
+			shows(func(p prefs) map[string]any { return map[string]any{"App.lineNumbers": p.lineNumbers} }),
+		choicePref(prefIndent, "off", indentMarks, func(p *prefs) *string { return &p.indentMarks }).
+			chooser("App.indentMarksIndex", "App.setIndentMarksIndex").
+			shows(func(p prefs) map[string]any {
+				// View › Indentation marks' radio set too
+				return map[string]any{"App.indentMarks": p.indentMarks, "App.indentMarksOff": p.indentMarks == "off",
+					"App.indentMarksCursorLine": p.indentMarks == "cursorLine", "App.indentMarksAll": p.indentMarks == "all"}
+			}),
+		boolPref(prefImages, true, func(p *prefs) *bool { return &p.images }).
+			chooser("App.imagesIndex", "App.setImagesIndex").
+			shows(func(p prefs) map[string]any { return map[string]any{"App.imagePreviews": p.images} }),
+		boolPref(prefAboutAt, true, func(p *prefs) *bool { return &p.aboutAtStart }).
+			chooser("App.aboutAtStartIndex", "App.setAboutAtStartIndex"),
+		boolPref(prefUpdates, true, func(p *prefs) *bool { return &p.updateCheck }).
+			chooser("App.updateCheckIndex", "App.setUpdateCheckIndex"),
+		choicePref(prefCorner, "bottom-right", corners, func(p *prefs) *string { return &p.toastCorner }).
+			chooser("App.toastCornerIndex", "App.setToastCorner"),
+		toastSeconds,
+		// the page: the ruler's columns of text (editable columns: the line numbers' gutter is added
+		// to them, syncPageWidth), and its border, whose right edge is the first column past them
+		// (vim's colorcolumn at textwidth+1); the editor's guide marks that column too, so a line
+		// scrolled past the page's edge still shows where it is
+		intPref(prefRuler, defaultRuler, minRuler, maxRuler, func(p *prefs) *int { return &p.ruler }).
+			shows(func(p prefs) map[string]any {
+				return map[string]any{"App.rulerColumn": p.ruler + 1, "App.rulerText": strconv.Itoa(p.ruler)}
+			}),
+	}
 }
 
 // edges are the four a panel opens from, in the order the Preferences dialog offers them.
@@ -153,53 +226,10 @@ func prefsOf(m map[string]any) prefs { return prefsFor(m, false) }
 // theme, each its own (themePref).
 func prefsFor(m map[string]any, gui bool) prefs {
 	p := defaultPrefsFor(gui)
+	readRows(&p, m, legacyPrefRows(nil, gui))
 	str := func(k string) (string, bool) { s, ok := m[k].(string); return s, ok && s != "" }
-	if s, ok := str(themePref(gui)); ok {
-		p.theme = s
-	}
-	if s, ok := str(prefMenuHide); ok {
-		p.menuHidden = s != "false"
-	}
-	if s, ok := str(prefStatus); ok {
-		p.statusOn = s == "true"
-	}
-	if s, ok := str(prefExplorer); ok && isEdge(s) {
-		p.explorerEdge = s
-	}
-	if s, ok := str(prefLinks); ok && isEdge(s) {
-		p.linkEdge = s
-	}
-	if s, ok := str(prefKeymap); ok && keysetOf[s] != "" {
-		p.keymap = s
-	}
-	if s, ok := str(prefWrap); ok {
-		p.wrap = s != "false"
-	}
-	if s, ok := str(prefNumbers); ok {
-		p.lineNumbers = s == "true"
-	}
-	if s, ok := str(prefIndent); ok && slices.Contains(indentMarks, s) {
-		p.indentMarks = s
-	}
-	if s, ok := str(prefImages); ok {
-		p.images = s != "false"
-	}
-	if s, ok := str(prefAboutAt); ok {
-		p.aboutAtStart = s != "false"
-	}
-	if s, ok := str(prefUpdates); ok {
-		p.updateCheck = s != "false"
-	}
-	if s, ok := str(prefCorner); ok && slices.Contains(corners, s) {
-		p.toastCorner = s
-	}
 	if s, ok := str(prefSearchStages); ok {
 		p.searchStages = stageChoiceOf(s)
-	}
-	if s, ok := str(prefSeconds); ok {
-		if n, err := strconv.Atoi(s); err == nil && n >= 1 && n <= maxToastSeconds {
-			p.toastSeconds = n
-		}
 	}
 	for k, v := range m {
 		if name, ok := strings.CutPrefix(k, prefPluginPrefix); ok {
@@ -220,11 +250,6 @@ func prefsFor(m map[string]any, gui bool) prefs {
 					p.pluginPlace[name] = s
 				}
 			}
-		}
-	}
-	if s, ok := str(prefRuler); ok {
-		if n, err := strconv.Atoi(s); err == nil && n >= minRuler && n <= maxRuler {
-			p.ruler = n
 		}
 	}
 	readTermPrefs(&p, m)
@@ -254,44 +279,12 @@ func panelLength(edge string) int {
 	return 85
 }
 
-// prefState is what the document reads of the preferences (the status line's is statusShown's).
+// prefState is what the document reads of the composite preferences: the panels', the agents',
+// the fonts'. The rows' are rowState's (prefspec.go); the status line's is statusShown's.
 func prefState(p prefs) map[string]any {
 	m := termState(p)
-	for k, v := range panelState(p) {
-		m[k] = v
-	}
-	for k, v := range agentState(p) {
-		m[k] = v
-	}
-	for k, v := range floatState(p.panelFloat) {
-		m[k] = v
-	}
-	for k, v := range fontState(p) {
-		m[k] = v
-	}
-	for k, v := range map[string]any{
-		"App.menuAutoHide":  p.menuHidden,
-		"App.keyset":        keysetOf[p.keymap],
-		"App.keymapVim":     p.keymap == "vim",
-		"App.keymapText":    p.keymap == "text",
-		"App.explorerEdge":  p.explorerEdge,
-		"App.linksEdge":     p.linkEdge,
-		"App.editorWrap":    p.wrap,
-		"App.lineNumbers":   p.lineNumbers,
-		"App.indentMarks":   p.indentMarks,
-		"App.imagePreviews": p.images,
-		// the page: the ruler's columns of text (editable columns: the line numbers' gutter is added
-		// to them, syncPageWidth), and its border, whose right edge is the first column past them
-		// (vim's colorcolumn at textwidth+1); the editor's guide marks that column too, so a line
-		// scrolled past the page's edge still shows where it is
-		"App.rulerColumn": p.ruler + 1,
-		"App.rulerText":   strconv.Itoa(p.ruler),
-		// View › Indentation marks' radio set
-		"App.indentMarksOff":        p.indentMarks == "off",
-		"App.indentMarksCursorLine": p.indentMarks == "cursorLine",
-		"App.indentMarksAll":        p.indentMarks == "all",
-	} {
-		m[k] = v
+	for _, part := range []map[string]any{panelState(p), agentState(p), floatState(p.panelFloat), fontState(p)} {
+		maps.Copy(m, part)
 	}
 	return m
 }
@@ -315,19 +308,22 @@ func (h *Host) loadPrefs() {
 			h.failed("preferences", a.err)
 			return
 		}
-		h.applyPrefs(prefsFor(a.m, h.gui))
+		p := prefsFor(a.m, h.gui)
+		readRows(&p, a.m, h.prefRows) // the features' own rows too
+		h.applyPrefs(p)
 	})
 }
 
 func (h *Host) applyPrefs(p prefs) {
 	h.prefs = p
-	for k, v := range prefState(p) {
-		h.set(k, v)
-	}
-	h.set("App.statusShown", h.statusShown())
+	st := prefState(p)
+	maps.Copy(st, rowState(p, h.prefRows))
+	st["App.statusShown"] = h.statusShown()
+	h.keep(h.p.SetMany(st))
 	h.syncPageWidth()
 	h.applyFonts(p)
-	h.syncPrefDialog()
+	h.syncTermDialog()
+	h.syncAgentDialog()
 	h.applyToastPrefs()
 	h.syncStages(true)
 	h.refreshPlugins() // the SPC p letters the user chose
@@ -410,7 +406,12 @@ func (h *Host) writePref() {
 func (h *Host) toggleMenuBar() {
 	v := !h.prefs.menuHidden
 	h.setPref(prefMenuHide, strconv.FormatBool(v), func(p *prefs) { p.menuHidden = v })
-	if v {
+	h.saidMenuBar(v)
+}
+
+// saidMenuBar says what the menu bar does now.
+func (h *Host) saidMenuBar(hidden bool) {
+	if hidden {
 		h.say("the menu bar hides: F10 or Alt+letter brings it up")
 	} else {
 		h.say("the menu bar shows")
@@ -440,20 +441,6 @@ func (h *Host) toggleLineNumbers() {
 	h.setPref(prefNumbers, strconv.FormatBool(v), func(p *prefs) { p.lineNumbers = v })
 }
 
-func (h *Host) setWrapIndex(i int) {
-	if i == 0 || i == 1 {
-		v := i == 0
-		h.setPref(prefWrap, strconv.FormatBool(v), func(p *prefs) { p.wrap = v })
-	}
-}
-
-func (h *Host) setLineNumbersIndex(i int) {
-	if i == 0 || i == 1 {
-		v := i == 0
-		h.setPref(prefNumbers, strconv.FormatBool(v), func(p *prefs) { p.lineNumbers = v })
-	}
-}
-
 // setIndentMarks is View › Indentation marks: which lines show their indentation, kept.
 func (h *Host) setIndentMarks(name string) {
 	if !slices.Contains(indentMarks, name) {
@@ -463,46 +450,9 @@ func (h *Host) setIndentMarks(name string) {
 	h.setPref(prefIndent, name, func(p *prefs) { p.indentMarks = name })
 }
 
-func (h *Host) setIndentMarksIndex(i int) {
-	if i >= 0 && i < len(indentMarks) {
-		h.setIndentMarks(indentMarks[i])
-	}
-}
-
-// setToastCorner is the Preferences dialog's corner for the notifications.
-func (h *Host) setToastCorner(i int) {
-	if i >= 0 && i < len(corners) {
-		c := corners[i]
-		h.setPref(prefCorner, c, func(p *prefs) { p.toastCorner = c })
-	}
-}
-
-// setToastSeconds is how long a finished notification stays: row i is i+1 seconds.
-func (h *Host) setToastSeconds(i int) {
-	if n := i + 1; n >= 1 && n <= maxToastSeconds {
-		h.setPref(prefSeconds, strconv.Itoa(n), func(p *prefs) { p.toastSeconds = n })
-	}
-}
-
 func (h *Host) toggleStatusLine() {
 	v := !h.prefs.statusOn
 	h.setPref(prefStatus, strconv.FormatBool(v), func(p *prefs) { p.statusOn = v })
-}
-
-func (h *Host) setExplorerEdge(i int) {
-	if i >= 0 && i < len(edges) {
-		e := edges[i]
-		h.setPref(prefExplorer, e, func(p *prefs) { p.explorerEdge = e })
-		h.dockPanel("explorer") // a new edge is seen at once
-	}
-}
-
-func (h *Host) setLinksEdge(i int) {
-	if i >= 0 && i < len(edges) {
-		e := edges[i]
-		h.setPref(prefLinks, e, func(p *prefs) { p.linkEdge = e })
-		h.dockPanel("links")
-	}
 }
 
 // setRuler takes the page's width from the Preferences dialog's field, as it is typed: a number of
@@ -534,12 +484,6 @@ func themePref(gui bool) string {
 	return prefTheme
 }
 
-func (h *Host) setThemeIndex(i int) {
-	if i >= 0 && i < len(themeNames) {
-		h.useTheme(themeNames[i])
-	}
-}
-
 // setKeymap switches the editor's keymap, and keeps it.
 func (h *Host) setKeymap(name string) {
 	if keysetOf[name] == "" {
@@ -548,12 +492,6 @@ func (h *Host) setKeymap(name string) {
 	}
 	h.setPref(prefKeymap, name, func(p *prefs) { p.keymap = name })
 	h.say("editor mode: " + keymapLabels[indexOf(keymaps, name)])
-}
-
-func (h *Host) setKeymapIndex(i int) {
-	if i >= 0 && i < len(keymaps) {
-		h.setKeymap(keymaps[i])
-	}
 }
 
 // toggleKeymap is SPC k: Vim, or Text.
@@ -582,58 +520,18 @@ func (h *Host) openAIModels() {
 	h.open("aiModels")
 }
 
-// syncPrefDialog sets the dialog's choosers to the preferences.
+// syncPrefDialog sets the dialog's choosers to the preferences: a chooser moved and not chosen
+// shows the value in effect again.
 func (h *Host) syncPrefDialog() {
-	h.set("App.themeIndex", indexOf(themeNames, h.prefs.theme))
-	h.set("App.keymapIndex", indexOf(keymaps, h.prefs.keymap))
-	h.set("App.explorerEdgeIndex", indexOf(edges, h.prefs.explorerEdge))
-	h.set("App.linksEdgeIndex", indexOf(edges, h.prefs.linkEdge))
-	h.set("App.menuHiddenIndex", boolIndex(h.prefs.menuHidden))
-	h.set("App.wrapIndex", boolIndex(h.prefs.wrap))
-	h.set("App.lineNumbersIndex", boolIndex(h.prefs.lineNumbers))
-	h.set("App.indentMarksIndex", indexOf(indentMarks, h.prefs.indentMarks))
-	h.set("App.imagesIndex", boolIndex(h.prefs.images))
-	h.set("App.aboutAtStartIndex", boolIndex(h.prefs.aboutAtStart))
-	h.set("App.updateCheckIndex", boolIndex(h.prefs.updateCheck))
-	h.set("App.toastCornerIndex", indexOf(corners, h.prefs.toastCorner))
-	h.set("App.toastSecondsIndex", h.prefs.toastSeconds-1)
-	h.set("App.statusShownIndex", boolIndex(h.prefs.statusOn))
+	st := map[string]any{}
+	for _, s := range h.prefRows {
+		if s.Index != "" {
+			st[s.Index] = s.row(h.prefs)
+		}
+	}
+	h.keep(h.p.SetMany(st))
 	h.syncTermDialog()
 	h.syncAgentDialog()
-}
-
-func (h *Host) setMenuHiddenIndex(i int) {
-	if v := i == 0; v != h.prefs.menuHidden {
-		h.toggleMenuBar()
-	}
-}
-
-func (h *Host) setStatusShownIndex(i int) {
-	if v := i == 0; v != h.prefs.statusOn {
-		h.toggleStatusLine()
-	}
-}
-
-// boolIndex is a yes/no chooser's row: yes first.
-func (h *Host) setAboutAtStartIndex(i int) {
-	if i == 0 || i == 1 {
-		v := i == 0
-		h.setPref(prefAboutAt, strconv.FormatBool(v), func(p *prefs) { p.aboutAtStart = v })
-	}
-}
-
-func (h *Host) setUpdateCheckIndex(i int) {
-	if i == 0 || i == 1 {
-		v := i == 0
-		h.setPref(prefUpdates, strconv.FormatBool(v), func(p *prefs) { p.updateCheck = v })
-	}
-}
-
-func boolIndex(v bool) int {
-	if v {
-		return 0
-	}
-	return 1
 }
 
 func indexOf(list []string, s string) int {

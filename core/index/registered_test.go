@@ -153,7 +153,7 @@ func TestAPanickingChunkerFailsItsDocument(t *testing.T) {
 	e.failing("bad.go", "the fake-1 chunker failed: funcChunker: boom")
 	e.write("a.go", goSrc)
 	e.ix.Touch("a.go")
-	e.eventually("a.go indexed beside it", func() bool { _, ok := e.store.Version("a.go"); return ok })
+	e.eventually("a.go indexed beside it", func() bool { _, ok, _ := e.store.Version(context.Background(), "a.go"); return ok })
 }
 
 // embedTexts is every text p was asked to embed that a funcChunker made.
