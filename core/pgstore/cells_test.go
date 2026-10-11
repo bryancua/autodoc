@@ -863,15 +863,17 @@ func TestABatchIsOneTransaction(t *testing.T) {
 		t.Fatalf("b.md after the commit: %q %v", v, ok)
 	}
 
-	// another writer lands between the batch's read and its write: the batch fails, keeps
-	// nothing, and the other writer's document stands (it is not written over). The other writer's
-	// own Put runs the hook too: inside it, the hook does nothing.
+	// another writer lands once, between the batch's first read and its write: the batch fails
+	// without reading again, keeps nothing, and the other writer's document stands (it is not
+	// written over). The other writer's own Put runs the hook too: inside it, the hook does nothing.
 	reads, inside := 0, false
 	putHook = func() {
 		if inside {
 			return
 		}
-		reads++
+		if reads++; reads > 1 {
+			return
+		}
 		inside = true
 		if _, err := s.Put(ctx, doc("a.md", "theirs")); err != nil {
 			t.Error(err)
@@ -881,10 +883,10 @@ func TestABatchIsOneTransaction(t *testing.T) {
 	b = s.Begin(ctx)
 	_, err = b.Put(ctx, doc("a.md", "never"))
 	putHook = nil
+	_ = b.Rollback() // before any Fatal: an open transaction holds its connection, and Close waits on it
 	if !errors.Is(err, ErrWriteRace) || reads != 1 {
 		t.Fatalf("a Put that lost the race: %v after %d reads; want ErrWriteRace after one", err, reads)
 	}
-	_ = b.Rollback()
 	if v, _ := version("a.md"); v != "theirs" {
 		t.Errorf("after a lost race: %q; want the other writer's", v)
 	}
