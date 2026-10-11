@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/yongjohnlee80/golib/search"
+	"github.com/yongjohnlee80/golib/search/chunk"
+	"github.com/yongjohnlee80/golib/vfs"
 
 	"github.com/yongjohnlee80/autodoc/core/schema"
 	"github.com/yongjohnlee80/autodoc/core/store"
@@ -286,5 +288,77 @@ func TestAFrontmatterWriteFailsAsItsStatements(t *testing.T) {
 			t.Errorf("%s on %s refused, and the replacement succeeded", op.op, op.table)
 		}
 		undo()
+	}
+}
+
+// TestALinkWriteFailsAsItsStatements: a document's names, links and link keys, and the
+// re-resolution of another document's dangling link to it, are written in its put; whichever of
+// those statements is refused, or whichever of their tables cannot be read, fails the commit, and
+// the same put then lands.
+func TestALinkWriteFailsAsItsStatements(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, options{})
+	e.stop() // the store's own writes from here on
+	db, err := store.Open(ctx, e.db.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	w := BufferedWriter(NewStore(db, e.ws))
+	put := func(d Doc) error {
+		b, err := w.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		if err := b.Put(ctx, d); err != nil {
+			return err
+		}
+		return b.Commit()
+	}
+	doc := func(path, version string, links ...DocLink) Doc {
+		c := search.Chunk{Breadcrumb: "T", Body: "text of " + path}
+		th := c.TextHash()
+		return Doc{Path: path, Version: vfs.Version(version), Indexer: "test",
+			Meta:   chunk.Meta{Title: "T", Aliases: []string{"another name of " + path}},
+			Chunks: []DocChunk{{Chunk: c, Hash: []byte(path + version), TextHash: th[:], Kind: ChunkSection}},
+			Links:  links}
+	}
+	toC := DocLink{Raw: "[[c]]", Name: "c", Kind: LinkWikilink}
+	supersedes := DocLink{Raw: "supersedes: b", Name: "b", Kind: "supersedes", Keys: []string{"b", "b.md"}}
+	if err := put(doc("b.md", "1", toC)); err != nil { // the instrument: unrefused, a put lands
+		t.Fatal(err)
+	}
+	var dangling int
+	if err := scanOne(ctx, e.raw, &dangling, "SELECT count(*) FROM link WHERE dst_doc IS NULL"); err != nil || dangling != 1 {
+		t.Fatalf("b.md's link to c: %d dangling, %v; want 1", dangling, err)
+	}
+	refuse := func(name string, fail func() func(), d Doc) {
+		t.Helper()
+		undo := fail()
+		if err := put(d); err == nil {
+			t.Errorf("%s: the put landed", name)
+		}
+		undo()
+	}
+	newC := doc("c.md", "1", supersedes)
+	for _, c := range []struct{ table, op string }{{"doc_name", "INSERT"}, {"link", "INSERT"}, {"link_key", "INSERT"}, {"link", "UPDATE"}} {
+		refuse(c.op+" on "+c.table, func() func() { return e.failWrites(c.table, c.op) }, newC)
+	}
+	for _, table := range []string{"doc_name", "link", "link_key"} {
+		refuse(table+" unreadable", func() func() { return e.renamed(table) }, newC)
+	}
+	if err := put(newC); err != nil {
+		t.Fatal(err)
+	}
+	if err := scanOne(ctx, e.raw, &dangling, "SELECT count(*) FROM link WHERE dst_doc IS NULL"); err != nil || dangling != 0 {
+		t.Fatalf("b.md's link to c after c.md landed: %d dangling, %v; want 0", dangling, err)
+	}
+	// a put over what c.md keeps deletes its names and links first
+	againC := doc("c.md", "2", supersedes)
+	for _, table := range []string{"doc_name", "link"} {
+		refuse("DELETE on "+table, func() func() { return e.failWrites(table, "DELETE") }, againC)
+	}
+	if err := put(againC); err != nil {
+		t.Fatal(err)
 	}
 }
