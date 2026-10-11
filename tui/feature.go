@@ -65,7 +65,7 @@ func newRegistry(fs ...Feature) (*registry, error) {
 	if err := checkRows(rows); err != nil {
 		return nil, err
 	}
-	if err := keyCatalog(fs).check(); err != nil {
+	if err := keyCatalog(fs).check(mainIDs); err != nil {
 		return nil, err
 	}
 	for _, f := range fs {

@@ -3,7 +3,10 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"io/fs"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -31,10 +34,11 @@ type Key struct {
 
 // Card is a card of keys: a Dialog listing its keys, each closing the card before it runs.
 type Card struct {
-	ID    string // the Dialog's id: "leader"
-	View  string // its file, views/<View>.qml: "Leader"
+	ID    string // the Dialog's id, a lower-camel name no other id of main.qml has: "leader"
+	View  string // its file and type, views/<View>.qml, an upper-camel name: "Leader"
 	Title string // its frame's title: "SPC — commands"
-	// Back is the card Backspace returns to; "" for none (SPC's card, opened from the Window).
+	// Back is the card Backspace returns to, and the only card a key opening it may be on; "" for
+	// a card the Window's keys open (SPC's).
 	Back string
 	// Help is how help heads the card's list: "THE LEADER CARD (…)".
 	Help string
@@ -168,14 +172,28 @@ func (k keyset) card(id string) (Card, bool) {
 	return k.cards[i], true
 }
 
-// check refuses a sequence two keys of one place take, a key on or opening a card that is not
-// declared, a card declared twice, and a card nothing opens.
-func (k keyset) check() error {
+// reserved are the sequences every card answers itself: q and Escape close it.
+var reserved = []string{"q", "Escape"}
+
+// check refuses:
+//   - a card declared twice, whose ID or View is no identifier, or whose ID is one of taken (the
+//     other ids of main.qml);
+//   - a key on, or opening, a card that is not declared, and a card nothing opens;
+//   - a key opening a card from anywhere but the card's Back (the Window, for a card with none), so
+//     Backspace goes back where the card came from;
+//   - a sequence two keys of one place take, or one a card answers itself: q, Escape, and Backspace
+//     on a card with a Back.
+func (k keyset) check(taken map[string]bool) error {
 	var errs []error
 	opened := map[string]bool{}
 	for i, c := range k.cards {
-		if slices.ContainsFunc(k.cards[:i], func(d Card) bool { return d.ID == c.ID || d.View == c.View }) {
+		switch {
+		case slices.ContainsFunc(k.cards[:i], func(d Card) bool { return d.ID == c.ID || d.View == c.View }):
 			errs = append(errs, fmt.Errorf("tui: the card %s is declared twice", c.ID))
+		case !identifier(c.ID, false) || !identifier(c.View, true):
+			errs = append(errs, fmt.Errorf("tui: the card %q (view %q) needs a lower-camel ID and an upper-camel View", c.ID, c.View))
+		case taken[c.ID]:
+			errs = append(errs, fmt.Errorf("tui: the card %s takes an id main.qml already has", c.ID))
 		}
 	}
 	for _, key := range k.keys {
@@ -183,8 +201,12 @@ func (k keyset) check() error {
 			errs = append(errs, fmt.Errorf("tui: %s is on the card %s, which is not declared", key.Seq, key.Card))
 		}
 		if key.Opens != "" {
-			if _, ok := k.card(key.Opens); !ok {
+			c, ok := k.card(key.Opens)
+			switch {
+			case !ok:
 				errs = append(errs, fmt.Errorf("tui: %s opens the card %s, which is not declared", key.Seq, key.Opens))
+			case key.Card != c.Back:
+				errs = append(errs, fmt.Errorf("tui: %s on %s opens the card %s, whose Backspace goes back to %s", key.Seq, placeName(key.Card), c.ID, placeName(c.Back)))
 			}
 			opened[key.Opens] = true
 		}
@@ -196,6 +218,14 @@ func (k keyset) check() error {
 	}
 	for _, place := range append([]string{""}, cardIDs(k.cards)...) {
 		seen := map[string]bool{}
+		if c, ok := k.card(place); ok {
+			for _, s := range reserved {
+				seen[s] = true
+			}
+			if c.Back != "" {
+				seen["Backspace"] = true
+			}
+		}
 		for _, key := range k.on(place) {
 			for _, s := range append([]string{key.Seq}, key.Also...) {
 				if seen[s] {
@@ -215,6 +245,40 @@ func cardIDs(cs []Card) []string {
 	}
 	return out
 }
+
+// identifier reports whether s is a QML identifier of one word, lower-camel ("agentsCard") or
+// upper-camel ("AgentsCard").
+func identifier(s string, upper bool) bool {
+	if s == "" {
+		return false
+	}
+	if first := s[0]; upper && !(first >= 'A' && first <= 'Z') || !upper && !(first >= 'a' && first <= 'z') {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return true
+}
+
+// mainIDs are the ids main.qml declares outside its generated cards: a card may take none of them.
+var mainIDs = func() map[string]bool {
+	src, err := fs.ReadFile(qmlFiles, "main.qml")
+	if err != nil {
+		panic("tui: embedded main.qml: " + err.Error())
+	}
+	s := string(src)
+	if a, b := strings.Index(s, cardsBegin), strings.Index(s, cardsEnd); a >= 0 && b > a {
+		s = s[:a] + s[b:]
+	}
+	ids := map[string]bool{}
+	for _, m := range regexp.MustCompile(`\bid:\s*([A-Za-z_][A-Za-z0-9_]*)`).FindAllStringSubmatch(s, -1) {
+		ids[m[1]] = true
+	}
+	return ids
+}()
 
 // placeName is how a refusal names where a key is answered.
 func placeName(card string) string {
@@ -318,9 +382,9 @@ func cardQML(c Card, keys []Key) string {
 Dialog {
     id: ` + c.ID + `
     closeOnQ: true
-    title: "` + c.Title + `"
+    title: ` + strconv.Quote(c.Title) + `
     dim: false
-    helpText: "` + help + `"
+    helpText: ` + strconv.Quote(help) + `
     Text { text: ` + textSource(c.ID) + `; wrapMode: Tui.WordWrap } // WordWrap keeps its lines: NoWrap is one
 ` + back + shortcuts(keys, "    ", c.ID) + "}\n"
 }
