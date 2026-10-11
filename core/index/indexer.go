@@ -115,12 +115,6 @@ func WithBatching(size int, delay time.Duration) Option {
 // WithMatch is which paths are the workspace's (its include and exclude); default all.
 func WithMatch(match func(path string) bool) Option { return func(o *options) { o.Match = match } }
 
-// WithRetry is how long a job whose file could not be read first waits (default 1 s), doubling up
-// to most (default 5 min).
-func WithRetry(first, most time.Duration) Option {
-	return func(o *options) { o.RetryDelay, o.MaxRetryDelay = first, most }
-}
-
 // WithClock is the clock the index's recorded times read (default time.Now).
 func WithClock(c clock.Clock) Option { return func(o *options) { o.Now = c } }
 
@@ -475,6 +469,9 @@ func (x *Indexer) writer(ctx context.Context) error {
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
+				if commitFailed != nil {
+					commitFailed(err)
+				}
 				// nothing was written: every result's job runs again
 				for _, p := range batch {
 					if j := x.jobs[p.path]; j != nil {
@@ -795,6 +792,11 @@ func (s *Store) Identity(ctx context.Context, path string) (string, bool, error)
 
 // commit writes one batch in one transaction: the jobs touched since the last one, and the results
 // whose job has not been touched again since its worker claimed it.
+// commitFailed is called with each commit that failed, before its jobs are queued again. It is nil
+// in production: a test sets it, before any indexer runs, to know an injected failure was met
+// rather than slept past.
+var commitFailed func(error)
+
 func (x *Indexer) commit(ctx context.Context, batch []*prepared) error {
 	s := x.store
 	now := x.opts.Now()
