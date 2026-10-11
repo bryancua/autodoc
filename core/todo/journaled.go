@@ -12,6 +12,7 @@ import (
 	"github.com/yongjohnlee80/golib/vfs"
 
 	"github.com/yongjohnlee80/autodoc/core/docs"
+	"github.com/yongjohnlee80/autodoc/core/paths"
 )
 
 // Every file change is journaled: a pending row before the first file step, committed with its
@@ -368,7 +369,7 @@ func (m *Manager) MoveStore(ctx context.Context, at At, to string) (Resolved, er
 	}
 	pfs.Close()
 	target := path.Join(canonParent, base)
-	if target == st.path || strings.HasPrefix(target, st.path+"/") {
+	if paths.Under(target, st.path) {
 		return Resolved{}, fmt.Errorf("%w: %s is inside the store", ErrInvalid, target)
 	}
 	if ok, err := m.dirExists(ctx, target); err != nil || ok {

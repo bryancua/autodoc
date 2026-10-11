@@ -21,6 +21,7 @@ import (
 	"github.com/yongjohnlee80/golib/search/embed"
 	"github.com/yongjohnlee80/golib/search/vector"
 
+	"github.com/yongjohnlee80/autodoc/core/clock"
 	"github.com/yongjohnlee80/autodoc/core/store"
 )
 
@@ -635,7 +636,7 @@ func (x *Indexer) embedLoop(ctx context.Context) {
 			if ctx.Err() == nil {
 				logger.Warning(x.opts.Logger, err, logger.Fields{"event": "embedding.batch.failed", "model": m.target.Model().Fingerprint(), "retry_after_ms": wait.Milliseconds()})
 			}
-			if !sleepCtx(ctx, wait) {
+			if !clock.Sleep(ctx, wait) {
 				return
 			}
 			wait = min(2*wait, time.Minute)
@@ -1022,17 +1023,6 @@ func (s *Store) semanticHits(tx *store.Tx, m *semantic, fp string, qvec []float3
 		out[i] = v.Item
 	}
 	return out, nil
-}
-
-func sleepCtx(ctx context.Context, d time.Duration) bool {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-t.C:
-		return true
-	}
 }
 
 // EmbeddingStatus is index.status's embeddings (ADR 0204 §4.7).

@@ -128,7 +128,7 @@ func TestSemanticAloneNeverFallsBackToWords(t *testing.T) {
 	e, p, _, _ := stagedEnv(t, Rank{})
 	p.fail("kestrel")
 	if res, err := e.ix.Search(context.Background(), "kestrel", stagesOf(StageSemantic)); !errors.Is(err, ErrEmbedFailed) {
-		t.Errorf("semantic alone, the query not embedded: %v hits, %v; want ErrEmbedFailed", paths(res), err)
+		t.Errorf("semantic alone, the query not embedded: %v hits, %v; want ErrEmbedFailed", hitPaths(res), err)
 	}
 	res := e.query("kestrel", stagesOf(StageLexical, StageSemantic))
 	if res.ModeUsed != ModeLexical || len(res.Hits) != 2 || !reflect.DeepEqual(res.Stages.Performed, []string{StageLexical}) ||

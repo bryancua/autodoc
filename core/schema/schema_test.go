@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 const kbSchema = `version: 1
@@ -466,5 +467,20 @@ func TestParseV2CountsEveryDeclaration(t *testing.T) {
 	var se *Error
 	if !errors.As(err, &se) || !strings.Contains(se.Msg, fmt.Sprintf("more than %d fields", MaxFields)) {
 		t.Fatalf("err = %v, want more than %d fields", err, MaxFields)
+	}
+}
+
+// A date is YYYY-MM-DD or an RFC 3339 time, in its own offset; nothing else is one.
+func TestParseDate(t *testing.T) {
+	if d, ok := ParseDate("2026-10-12"); !ok || d.Format(time.DateOnly) != "2026-10-12" {
+		t.Errorf("a calendar date: %v %v", d, ok)
+	}
+	if d, ok := ParseDate("2026-10-12T23:30:00-07:00"); !ok || d.Format(time.DateOnly) != "2026-10-12" || d.UTC().Day() != 13 {
+		t.Errorf("an RFC 3339 time keeps its offset: %v %v", d, ok)
+	}
+	for _, s := range []string{"", "12/10/2026", "2026-13-01", "2026-10-12 09:00"} {
+		if _, ok := ParseDate(s); ok {
+			t.Errorf("%q is no date", s)
+		}
 	}
 }
