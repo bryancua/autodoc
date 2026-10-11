@@ -833,13 +833,21 @@ func facetValue(t Type, v any) (string, bool) {
 }
 
 func dateOf(s string) (string, bool) {
-	if d, err := time.Parse(time.DateOnly, s); err == nil {
-		return d.Format(time.DateOnly), true
-	}
-	if t, err := time.Parse(time.RFC3339, s); err == nil {
+	if t, ok := ParseDate(s); ok {
 		return t.Format(time.DateOnly), true
 	}
 	return "", false
+}
+
+// ParseDate reads a frontmatter date as a schema's date field admits one: YYYY-MM-DD, or an
+// RFC 3339 time, kept in its own offset.
+func ParseDate(s string) (time.Time, bool) {
+	for _, layout := range []string{time.DateOnly, time.RFC3339} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
 }
 
 func kindOf(v any) string {

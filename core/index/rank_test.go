@@ -73,12 +73,12 @@ func TestTheRankerOrdersTheHitsByTheirChunks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	eq(t, "recall order", paths(recall), []string{"short.md", "long.md"})
+	eq(t, "recall order", hitPaths(recall), []string{"short.md", "long.md"})
 	res, err := e.ixSearch("kestrel")
 	if err != nil {
 		t.Fatal(err)
 	}
-	eq(t, "ranked order", paths(res), []string{"long.md", "short.md"})
+	eq(t, "ranked order", hitPaths(res), []string{"long.md", "short.md"})
 	if res.Rank != (RankState{State: "ready", Model: "scorer"}) {
 		t.Errorf("rank %+v", res.Rank)
 	}
@@ -180,13 +180,13 @@ func TestABuildsTextsReachTheRanker(t *testing.T) {
 	got := sc.texts()
 	slices.Sort(got)
 	eq(t, "texts read", got, []string{"T:long.md", "T:short.md"})
-	eq(t, "ranked order", paths(res), []string{"short.md", "long.md"}) // "T:short.md" is the longer
+	eq(t, "ranked order", hitPaths(res), []string{"short.md", "long.md"}) // "T:short.md" is the longer
 	fail = errors.New("labels: the catalogue is down")
 	res, err = e.ixSearch("kestrel")
 	if err != nil {
 		t.Fatal(err)
 	}
-	eq(t, "recall order", paths(res), []string{"short.md", "long.md"})
+	eq(t, "recall order", hitPaths(res), []string{"short.md", "long.md"})
 	if res.Rank.State != "error" || res.Hits[0].RankScore != nil {
 		t.Errorf("rank %+v, score %v", res.Rank, res.Hits[0].RankScore)
 	}

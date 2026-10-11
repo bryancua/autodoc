@@ -5,10 +5,12 @@
 package kind
 
 import (
+	"bytes"
 	"fmt"
 	"path"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // Kind is how a file is read.
@@ -87,7 +89,10 @@ func (r Registrations) Readable(p string) bool { return slices.Contains(r.Derive
 // ("PDF", "DOCX").
 func Label(p string) string { return strings.ToUpper(strings.TrimPrefix(Ext(p), ".")) }
 
-// IsText reports whether the kind is read as UTF-8 text that must validate as such.
+// Textual reports whether b is text as AutoDoc reads it: valid UTF-8 with no NUL byte.
+func Textual(b []byte) bool { return utf8.Valid(b) && bytes.IndexByte(b, 0) < 0 }
+
+// IsText reports whether the kind is read as UTF-8 text that must validate as such (Textual).
 func (k Kind) IsText() bool { return k == Text || k == YAML || k == Registered }
 
 // ErrExtension is a custom text extension that cannot be one: malformed, a built-in kind's, or a
