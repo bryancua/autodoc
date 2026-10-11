@@ -91,9 +91,8 @@ type prefs struct {
 	updateCheck            bool   // a newer release is looked for when the program starts (startup.go)
 	toastCorner            string // where the notifications stack
 	toastSeconds           int    // how long a finished one stays
-	// the terminal: the edge it opens from, and each edge's size and length the user set
-	termEdge             string
-	termSize, termLength map[string]int
+	// the terminal: the edge it opens from; its geometry is in panelGeo
+	termEdge string
 	// pluginPlace is each plugin's placement the user chose, by name (tui.plugin.<name>.placement);
 	// one its manifest does not offer is ignored where it is read (plugins.go placement)
 	pluginPlace map[string]string
@@ -102,7 +101,7 @@ type prefs struct {
 	pluginKeys map[string]string
 	// searchStages are the search's boxes as the user left them (stages.go)
 	searchStages stageChoice
-	// panelGeo are the explorer's and the links' dragged sizes, by preference name (panelsize.go)
+	// panelGeo are every sized panel's kept size and length, by preference name (panelsize.go)
 	panelGeo map[string]int
 	// panelFloat are the panels moved or resized off their edges: x, y, w, h in percent of the
 	// Window (panelfloat.go)
@@ -130,7 +129,7 @@ func defaultPrefsFor(gui bool) prefs {
 	}
 	return prefs{theme: theme, menuHidden: true, explorerEdge: "left", linkEdge: "right", ruler: defaultRuler, keymap: "vim",
 		wrap: true, indentMarks: "off", images: true, aboutAtStart: true, updateCheck: true, toastCorner: "bottom-right", toastSeconds: defaultToastSeconds,
-		termEdge: "bottom", termSize: map[string]int{}, termLength: map[string]int{}, searchStages: allStagesChecked(),
+		termEdge: "bottom", searchStages: allStagesChecked(),
 		agentEdge: defaultAgentEdge}
 }
 
