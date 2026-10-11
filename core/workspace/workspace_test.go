@@ -31,7 +31,7 @@ func TestMatcher(t *testing.T) {
 }
 
 func TestOpenReportsAMissingRoot(t *testing.T) {
-	c := config.Workspace{Name: "kb", Root: filepath.Join(t.TempDir(), "missing"), Include: config.DefaultInclude, Exclude: config.DefaultExclude}
+	c := config.Workspace{Name: "kb", Root: filepath.Join(t.TempDir(), "missing"), Include: config.DefaultInclude(), Exclude: config.DefaultExclude()}
 	if _, err := workspace.Open(context.Background(), c); err == nil {
 		t.Fatal("opened a missing root")
 	}

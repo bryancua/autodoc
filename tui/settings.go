@@ -505,7 +505,7 @@ func changed(c map[string]any) string {
 // until another is typed or browsed to, with the default rules.
 func (h *Host) startAddWorkspace() {
 	h.withSettingsExtras(func(providers []string, databases bool) {
-		w := wsInfo{name: "untitled", root: homeDir(), include: config.DefaultInclude, exclude: config.DefaultExclude,
+		w := wsInfo{name: "untitled", root: homeDir(), include: config.DefaultInclude(), exclude: config.DefaultExclude(),
 			sectionTokens: store.SectionTokensDefault, embeddingPolicy: store.EmbeddingAlways,
 			db: databasesInfo{destination: store.DestinationLocal}}
 		h.showSettings(settingsBase{w: w, adding: true, providers: providers, databases: databases, registered: h.kinds.Chunked, derived: h.kinds.Derived}, 0, "")

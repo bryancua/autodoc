@@ -11,7 +11,7 @@ import (
 // not a node_modules at any depth, nor .git — and treats those directories as excluded, so they are
 // never walked or watched.
 func TestTheDefaultsLeaveDependenciesOut(t *testing.T) {
-	m := workspace.NewMatcher(config.DefaultInclude, config.DefaultExclude)
+	m := workspace.NewMatcher(config.DefaultInclude(), config.DefaultExclude())
 	for p, want := range map[string]bool{
 		"notes/a.md":                         true,
 		"notes/a.txt":                        true,
