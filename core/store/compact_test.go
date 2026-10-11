@@ -136,3 +136,13 @@ func TestTheStoresTempFilesGoBesideIt(t *testing.T) {
 		t.Errorf("a SQLITE_TMPDIR the user set became %q", got)
 	}
 }
+
+// An incremental vacuum that cannot run says so, naming the pragma: here, the context is done.
+func TestIncrementalVacuumThatFailsSaysSo(t *testing.T) {
+	s := filled(t, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := s.IncrementalVacuum(ctx); err == nil || !strings.Contains(err.Error(), "store: incremental_vacuum") || !errors.Is(err, context.Canceled) {
+		t.Errorf("a vacuum on a done context: %v", err)
+	}
+}
