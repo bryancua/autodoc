@@ -94,7 +94,7 @@ func (h *Host) state() map[string]any {
 		"App.newPreviewAt":    0,
 
 		// the leader card
-		"App.leaderText": leaderText,
+		"App.leaderText": cardText(h.keysLeader),
 
 		// the editor's preferences
 		"App.keymaps": choices(keymapLabels...),
@@ -251,7 +251,7 @@ func (h *Host) state() map[string]any {
 		"App.managerIndex":   0,
 		"App.workspaceIndex": 0,
 
-		"App.helpText":      helpText,
+		"App.helpText":      helpText(h.keysLeader),
 		"App.arrangeTitle":  "arrange a panel",
 		"App.tutorialTitle": "", "App.tutorialText": "", "App.tutorialBack": false, "App.tutorialNext": true,
 		"App.gui":           h.gui,

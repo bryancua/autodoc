@@ -1,8 +1,17 @@
 package tui
 
+import "strings"
+
 // HELP — the keys, and what each needs (a key that silently needs something reads as broken).
 
-const helpText = `KEYS
+// helpText is Help › Keys: the Window's keys, the leader card's as the card lists them (keys.go),
+// then the page, the panels and what a key needs.
+func helpText(leader []Key) string {
+	card := "  " + strings.ReplaceAll(cardText(leader), "\n", "\n  ")
+	return helpKeys + "\n\nTHE LEADER CARD (Space in Normal mode, Ctrl+Space in every mode)\n" + card + "\n\n" + helpRest
+}
+
+const helpKeys = `KEYS
   Space       the leader card, in Normal mode: a key runs its command (its list is the card);
               Ctrl+Space opens it in every editor mode
   Ctrl+G, SPC /, SPC SPC  search the workspace, by words and meaning: the hits on the left,
@@ -42,9 +51,10 @@ const helpText = `KEYS
   Shift+F10, the Menu key, SPC .  the page's right-click menu, at the cursor
   Ctrl+= Ctrl+- Ctrl+0  in the GUI's window, zoom in, out, and back to 100% (Options › Fonts and
               zoom… chooses the fonts too); a terminal's own settings choose its font. Zoom
-              stops before the window would be smaller than 80 × 20: enlarge it to zoom on
+              stops before the window would be smaller than 80 × 20: enlarge it to zoom on`
 
-THE PAGE
+// helpRest is the help after its keys and the leader card.
+const helpRest = `THE PAGE
   The file is a page 120 columns wide, centred, the ruler at its edge (Preferences sets the
   width). In the Vim editor mode, i types and Esc goes back to Normal; in the Text mode, typing
   types. With no file open, the page is an untitled
@@ -128,24 +138,6 @@ WHAT A KEY NEEDS
   daemon, or delete the workspace.
   autodoc --ui <name> opens that workspace; without a name, the one used last.
   Opening, switching or quitting over unsaved changes asks first: Save, Discard or Stay.`
-
-// leaderText is the leader card's body, a key a line, as its Shortcuts are (views/Leader.qml).
-const leaderText = `/  search (or SPC again)  e  the explorer
-o  open a document        l  the relations
-f  open a file anywhere   j  related files, by digit
-n  new file               b  back
-s  save                   ` + "`" + `  the terminal
-r  recent files           t  the status line
-w  switch workspace       g  AI agent
-W  manage workspaces      m  show/focus or hide the menu
-?  help                   k  the editor mode (Vim, Text)
-h  notifications          ,  editor preferences
-O  the file's outline     a  search models
-d  view the diagram       A  about
-G  agent profiles         Q  quit
-p  plugin commands        H  preview HTML
-.  the right-click menu   L  arrange a panel
-T  the tutorial           x  todos`
 
 // vimKeysText is the Vim editor mode's card (? in Normal mode, views/VimKeys.qml): golib's Vim
 // keyset as autodoc's page takes it.
