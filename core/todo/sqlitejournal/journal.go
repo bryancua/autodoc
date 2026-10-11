@@ -1,4 +1,4 @@
-package store
+package sqlitejournal
 
 import (
 	"context"
@@ -11,14 +11,15 @@ import (
 	"github.com/yongjohnlee80/golib/dao"
 	"github.com/yongjohnlee80/golib/errs"
 
+	"github.com/yongjohnlee80/autodoc/core/store"
 	"github.com/yongjohnlee80/autodoc/core/todo"
 )
 
-// TODO JOURNAL — core/todo's Journal port (ADR 1791532020 §2.5) on the store's own tables (000017):
-// each todo store's change log, snapshot and consumers' cursors, and the store, root and var
-// records, all keyed by the store's stable id, never its path. This file is the only store edit the
-// todo system makes; its tables are declared here rather than in tables.go, until a
-// table-registration seam lets a package bring its own (follow-up 3/7).
+// THE TODO JOURNAL ON THE STORE — core/todo's Journal port (ADR 1791532020 §2.5) on the store's
+// todo tables (migration 000017): each todo store's change log, snapshot and consumers' cursors,
+// and the store, root and var records, all keyed by the store's stable id, never its path. The
+// tables are declared through core/store's seam (store.Declare), so neither core/store nor
+// core/todo imports the other: this package joins them.
 //
 // Every method is one transaction. A write runs on the store's single writer connection, so Commit
 // and Record write their row and apply their Edit together, and UpdateSettings reads, changes and
@@ -30,17 +31,15 @@ import (
 
 // errTodoSettled is a Stage, Commit or Drop of a row that is not pending (Stage: not exactly
 // pending), or not there.
-var errTodoSettled = errs.Sentinel(errs.ErrPrecondition, "store: the todo change is not pending")
+var errTodoSettled = errs.Sentinel(errs.ErrPrecondition, "todo journal: the change is not pending")
 
-// TodoJournal is the todo system's journal on this store.
-func (s *Store) TodoJournal() todo.Journal {
-	return &todoJournal{s: s, w: newTodoTables(s.w), r: newTodoTables(s.r)}
-}
+// New is the todo system's journal on the store s.
+func New(s *store.Store) todo.Journal { return &todoJournal{s: s} }
 
-type todoJournal struct {
-	s    *Store
-	w, r *todoTables
-}
+type todoJournal struct{ s *store.Store }
+
+// tables are the todo tables, declared to the store: built for each store's writer and readers.
+var tables = store.Declare("todo", newTodoTables)
 
 var _ todo.Journal = (*todoJournal)(nil)
 
@@ -117,7 +116,16 @@ type (
 	}
 )
 
-type todoSchema[R any] = dao.Schema[R, todoCol, noSort, int64]
+// todoSort names a todo table's order.
+type todoSort string
+
+const (
+	byKey  todoSort = "key"
+	bySeq  todoSort = "seq"
+	byPath todoSort = "path"
+)
+
+type todoSchema[R any] = dao.Schema[R, todoCol, todoSort, int64]
 
 // todoTables is every todo table, bound to one connection.
 type todoTables struct {
@@ -132,21 +140,21 @@ type todoTables struct {
 // todoTable declares one todo table: its columns, the columns an upsert conflicts on, and its
 // order; an id column, when there is one, is what Insert returns.
 func todoTable[R any](c dao.DataConn, table string, fields map[todoCol]func(R) any, conflict []todoCol,
-	order map[noSort]string, id ...todoCol) *todoSchema[R] {
+	order map[todoSort]string, id ...todoCol) *todoSchema[R] {
 	fs := map[todoCol]dao.Field[R]{}
 	for name, scan := range fields {
-		fs[name] = col(table, name, scan)
+		fs[name] = store.Col(table, name, scan)
 	}
-	opts := []dao.Option[R, todoCol, noSort, int64]{
-		dao.Table[R, todoCol, noSort, int64](table),
-		dao.Fields[R, todoCol, noSort, int64](fs),
-		dao.SortMap[R, todoCol, noSort, int64](order),
+	opts := []dao.Option[R, todoCol, todoSort, int64]{
+		dao.Table[R, todoCol, todoSort, int64](table),
+		dao.Fields[R, todoCol, todoSort, int64](fs),
+		dao.SortMap[R, todoCol, todoSort, int64](order),
 	}
 	if len(conflict) > 0 {
-		opts = append(opts, dao.Conflict[R, todoCol, noSort, int64](conflict...))
+		opts = append(opts, dao.Conflict[R, todoCol, todoSort, int64](conflict...))
 	}
 	if len(id) > 0 {
-		opts = append(opts, dao.ID[R, todoCol, noSort, int64](id[0]))
+		opts = append(opts, dao.ID[R, todoCol, todoSort, int64](id[0]))
 	}
 	return dao.New(c, opts...)
 }
@@ -159,18 +167,18 @@ func newTodoTables(c dao.DataConn) *todoTables {
 			tcClaimed:   func(r *todoStoreRow) any { return &r.Claimed },
 			tcClaimedAt: func(r *todoStoreRow) any { return &r.ClaimedAt },
 			tcLastUse:   func(r *todoStoreRow) any { return &r.LastUse },
-		}, []todoCol{tcID}, map[noSort]string{ByKey: `"todo_store"."id"`}),
+		}, []todoCol{tcID}, map[todoSort]string{byKey: `"todo_store"."id"`}),
 		roots: todoTable(c, "todo_root", map[todoCol]func(*todoRootRow) any{
 			tcRoot:         func(r *todoRootRow) any { return &r.Root },
 			tcOverride:     func(r *todoRootRow) any { return &r.Override },
 			tcRegistered:   func(r *todoRootRow) any { return &r.Registered },
 			tcKBRoot:       func(r *todoRootRow) any { return &r.KBRoot },
 			tcLastResolved: func(r *todoRootRow) any { return &r.LastResolved },
-		}, []todoCol{tcRoot}, map[noSort]string{ByKey: `"todo_root"."root"`}),
+		}, []todoCol{tcRoot}, map[todoSort]string{byKey: `"todo_root"."root"`}),
 		vars: todoTable(c, "todo_var", map[todoCol]func(*todoVarRow) any{
 			tcName:  func(r *todoVarRow) any { return &r.Name },
 			tcValue: func(r *todoVarRow) any { return &r.Value },
-		}, []todoCol{tcName}, map[noSort]string{ByKey: `"todo_var"."name"`}),
+		}, []todoCol{tcName}, map[todoSort]string{byKey: `"todo_var"."name"`}),
 		changes: todoTable(c, "todo_change", map[todoCol]func(*todoChangeRow) any{
 			tcSeq:      func(r *todoChangeRow) any { return &r.Seq },
 			tcStore:    func(r *todoChangeRow) any { return &r.Store },
@@ -188,7 +196,7 @@ func newTodoTables(c dao.DataConn) *todoTables {
 			tcToRev:    func(r *todoChangeRow) any { return &r.ToRev },
 			tcState:    func(r *todoChangeRow) any { return &r.State },
 			tcAt:       func(r *todoChangeRow) any { return &r.At },
-		}, nil, map[noSort]string{BySeq: `"todo_change"."seq"`}, tcSeq),
+		}, nil, map[todoSort]string{bySeq: `"todo_change"."seq"`}, tcSeq),
 		snapshot: todoTable(c, "todo_snapshot", map[todoCol]func(*todoSnapRow) any{
 			tcStore:    func(r *todoSnapRow) any { return &r.Store },
 			tcPath:     func(r *todoSnapRow) any { return &r.Path },
@@ -197,24 +205,24 @@ func newTodoTables(c dao.DataConn) *todoTables {
 			tcStatus:   func(r *todoSnapRow) any { return &r.Status },
 			tcAssignee: func(r *todoSnapRow) any { return &r.Assignee },
 			tcFields:   func(r *todoSnapRow) any { return &r.Fields },
-		}, []todoCol{tcStore, tcPath}, map[noSort]string{ByPath: `"todo_snapshot"."path"`}),
+		}, []todoCol{tcStore, tcPath}, map[todoSort]string{byPath: `"todo_snapshot"."path"`}),
 		consumers: todoTable(c, "todo_consumer", map[todoCol]func(*todoConsumerRow) any{
 			tcStore:        func(r *todoConsumerRow) any { return &r.Store },
 			tcName:         func(r *todoConsumerRow) any { return &r.Name },
 			tcAcked:        func(r *todoConsumerRow) any { return &r.Acked },
 			tcSeenAt:       func(r *todoConsumerRow) any { return &r.SeenAt },
 			tcUnregistered: func(r *todoConsumerRow) any { return &r.Unregistered },
-		}, []todoCol{tcStore, tcName}, map[noSort]string{ByKey: `"todo_consumer"."name"`}),
+		}, []todoCol{tcStore, tcName}, map[todoSort]string{byKey: `"todo_consumer"."name"`}),
 	}
 }
 
 // write runs fn in a write transaction on the writer; read, in a read transaction on a reader.
 func (j *todoJournal) write(ctx context.Context, fn func(tx *dao.Transaction, t *todoTables) error) error {
-	return j.s.Write(ctx, func(tx *Tx) error { return fn(tx.tx, j.w) })
+	return j.s.Write(ctx, func(tx *store.Tx) error { return fn(tx.Transaction(), tables.In(tx)) })
 }
 
 func (j *todoJournal) read(ctx context.Context, fn func(tx *dao.Transaction, t *todoTables) error) error {
-	return j.s.Read(ctx, func(tx *Tx) error { return fn(tx.tx, j.r) })
+	return j.s.Read(ctx, func(tx *store.Tx) error { return fn(tx.Transaction(), tables.In(tx)) })
 }
 
 // THE CHANGE LOG
@@ -285,7 +293,7 @@ func (j *todoJournal) Head(ctx context.Context, store string) (int64, error) {
 	var head int64
 	err := j.read(ctx, func(tx *dao.Transaction, t *todoTables) error {
 		rows, err := t.changes.On(tx).With(tcStore, store).With(tcState, todo.StateCommitted).
-			OrderBy(dao.Desc(BySeq)).Limit(1).Select(tcSeq)
+			OrderBy(dao.Desc(bySeq)).Limit(1).Select(tcSeq)
 		if len(rows) == 1 {
 			head = rows[0].Seq
 		}
@@ -356,7 +364,7 @@ func settle(tx *dao.Transaction, t *todoTables, seq int64, verb string, states .
 
 // changes is the rows q selects, in seq order.
 func changes(q dao.DAO[*todoChangeRow, todoCol, int64]) ([]todo.Change, error) {
-	rows, err := q.OrderBy(dao.Asc(BySeq)).Select()
+	rows, err := q.OrderBy(dao.Asc(bySeq)).Select()
 	if err != nil {
 		return nil, err
 	}
@@ -401,7 +409,7 @@ func applyEdit(tx *dao.Transaction, t *todoTables, e todo.Edit) error {
 func (j *todoJournal) Snapshot(ctx context.Context, store string) ([]todo.SnapshotRow, error) {
 	var out []todo.SnapshotRow
 	err := j.read(ctx, func(tx *dao.Transaction, t *todoTables) error {
-		rows, err := t.snapshot.On(tx).With(tcStore, store).OrderBy(dao.Asc(ByPath)).Select()
+		rows, err := t.snapshot.On(tx).With(tcStore, store).OrderBy(dao.Asc(byPath)).Select()
 		if err != nil {
 			return err
 		}
@@ -442,7 +450,7 @@ func putSnapshot(tx *dao.Transaction, t *todoTables, store string, rows []todo.S
 func (j *todoJournal) Consumers(ctx context.Context, store string) ([]todo.Consumer, error) {
 	var out []todo.Consumer
 	err := j.read(ctx, func(tx *dao.Transaction, t *todoTables) error {
-		rows, err := t.consumers.On(tx).With(tcStore, store).OrderBy(dao.Asc(ByKey)).Select()
+		rows, err := t.consumers.On(tx).With(tcStore, store).OrderBy(dao.Asc(byKey)).Select()
 		for _, r := range rows {
 			out = append(out, todo.Consumer{Name: r.Name, Acked: r.Acked, SeenAt: fromNanos(r.SeenAt), Unregistered: r.Unregistered != 0})
 		}

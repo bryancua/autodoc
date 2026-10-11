@@ -605,6 +605,7 @@ type tables struct {
 	jobs        *dao.Schema[*Job, JobField, noSort, string]
 	changes     *dao.Schema[*Change, ChangeField, noSort, int64]
 	events      *dao.Schema[*Event, EventField, noSort, int64]
+	declared    []any // every package's own declared tables (declare.go)
 }
 
 func col[R any, T ~string](table string, c T, scan func(R) any) dao.Field[R] {
@@ -617,6 +618,7 @@ func joined[R any, T ~string](table string, c T, join dao.JoinKey, scan func(R) 
 
 func newTables(c dao.DataConn) *tables {
 	return &tables{
+		declared: built(c),
 		workspaces: dao.New[*Workspace, WorkspaceField, noSort, int64](c,
 			dao.Table[*Workspace, WorkspaceField, noSort, int64]("workspace"),
 			dao.ID[*Workspace, WorkspaceField, noSort, int64](WorkspaceID),
