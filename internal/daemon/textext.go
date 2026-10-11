@@ -86,7 +86,10 @@ func (m *Workspaces) applyTextExtensions(ctx context.Context, s *served, norm []
 	if len(changed) > 0 {
 		indexed, err := s.ix.PathsUnder(ctx, ".")
 		if err != nil {
-			logger.Warning(m.opts.Log, err, logger.Fields{"event": "index.reindex.failed", "workspace_id": s.id})
+			m.mu.Lock() // its callers hold no lock: the name is read as a rename leaves it
+			name := s.view.name
+			m.mu.Unlock()
+			logger.Warning(m.opts.Log, err, logger.Fields{"event": "index.reindex.failed", "workspace": name, "workspace_id": s.id})
 			return
 		}
 		for _, p := range indexed {
