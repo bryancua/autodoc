@@ -159,7 +159,7 @@ func TestTheFontsDialogListsTheFamilies(t *testing.T) {
 func TestATerminalHasNoFonts(t *testing.T) {
 	d := startDaemon(t, map[string][]string{"kb": {"a.md", "a\n"}})
 	r := attached(t, d)
-	onLoop(r, func() bool { r.h.zoomStep(1); r.h.setZoom(150); r.h.setExplorerEdge(1); return true })
+	onLoop(r, func() bool { r.h.zoomStep(1); r.h.setZoom(150); r.h.choosePrefNamed(prefExplorer, 1); return true })
 	// the store's writes are in order: a zoom written would be there before the explorer's edge
 	storedPref(t, d, r, "tui.explorer.edge", "right")
 	if m, _ := d.db.Preferences(context.Background()); m["gui.zoom"] != "" {

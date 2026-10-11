@@ -107,7 +107,7 @@ func TestResetAndANewEdgeDockThePanels(t *testing.T) {
 	d, r := runShellTUI(t, map[string]string{"tui.explorer.float": "50,25,30,50", "tui.links.float": "10,10,30,50", "tui.terminal.float": "0,50,100,30"})
 	onLoop(r, func() bool { r.h.togglePanel("explorer"); return true })
 	r.s.WaitFor(t, "the explorer floating mid-screen", func(sc string) bool { _, c := panelAt(sc, "explorer"); return c >= 45 })
-	onLoop(r, func() bool { r.h.setExplorerEdge(1); return true }) // right
+	onLoop(r, func() bool { r.h.choosePrefNamed(prefExplorer, 1); return true }) // right
 	storedPref(t, d, r, "tui.explorer.float", "")
 	onLoop(r, func() bool { r.h.setTerminalEdge(indexOf(termEdges, "top")); return true })
 	storedPref(t, d, r, "tui.terminal.float", "")

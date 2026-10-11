@@ -56,6 +56,15 @@ func newRegistry(fs ...Feature) (*registry, error) {
 		owner[name] = f.Name()
 		return nil
 	}
+	var rows []PrefSpec
+	for _, f := range fs {
+		if p, ok := f.(Prefs); ok {
+			rows = append(rows, p.Prefs()...)
+		}
+	}
+	if err := checkRows(rows); err != nil {
+		return nil, err
+	}
 	for _, f := range fs {
 		for _, name := range slices.Sorted(maps.Keys(f.State())) {
 			if err := claim(f, name); err != nil {
@@ -132,7 +141,21 @@ func (r *registry) event(kind, workspace, detail string) bool {
 // features are the program's parts, in the order the registry merges them.
 func (h *Host) features() []Feature {
 	h.asker = newAsker(core{h})
-	return []Feature{legacy{h}, h.asker, newStartup(core{h}, h.aboutInfo.Version), newTodos(core{h}), h.luaFeature()}
+	fs := []Feature{legacy{h}, h.asker, newStartup(core{h}, h.aboutInfo.Version), newTodos(core{h}), h.luaFeature()}
+	// the preferences every feature declares, read over their defaults until the store's arrive;
+	// their choosers are one feature of their own
+	h.prefRows = nil
+	for _, f := range fs {
+		if p, ok := f.(Prefs); ok {
+			h.prefRows = append(h.prefRows, p.Prefs()...)
+		}
+	}
+	for _, s := range h.prefRows {
+		if s.value(h.prefs) == "" { // a feature's own row: the host's defaults hold the rest
+			s.reset(&h.prefs)
+		}
+	}
+	return append(fs, prefChoosers{h})
 }
 
 // legacy is the host as it is: everything not yet a feature of its own.
@@ -141,6 +164,7 @@ type legacy struct{ h *Host }
 func (legacy) Name() string                   { return "legacy" }
 func (l legacy) State() map[string]any        { return l.h.state() }
 func (l legacy) Commands() map[string]Command { return l.h.commands() }
+func (l legacy) Prefs() []PrefSpec            { return legacyPrefRows(l.h, l.h.gui) }
 
 // Core is what a feature may use of the host: all of it, so a feature never reaches for a Host
 // field. Every method runs on the loop, as the feature's own handlers do.
