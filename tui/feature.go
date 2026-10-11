@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -66,8 +65,7 @@ func newRegistry(fs ...Feature) (*registry, error) {
 	if err := checkRows(rows); err != nil {
 		return nil, err
 	}
-	window, leader := keyCatalog(fs)
-	if err := errors.Join(checkKeys("the Window's", window), checkKeys("the leader card's", leader)); err != nil {
+	if err := keyCatalog(fs).check(); err != nil {
 		return nil, err
 	}
 	for _, f := range fs {
@@ -160,7 +158,7 @@ func (h *Host) features() []Feature {
 			s.reset(&h.prefs)
 		}
 	}
-	h.keysWindow, h.keysLeader = keyCatalog(fs)
+	h.keys = keyCatalog(fs)
 	return append(fs, prefChoosers{h})
 }
 
