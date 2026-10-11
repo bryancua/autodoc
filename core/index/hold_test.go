@@ -125,7 +125,7 @@ func TestADaemonHoldsWhatItCannotReadAgain(t *testing.T) {
 		t.Fatalf("status %+v", st)
 	}
 	var he *HeldError
-	if err := e.ix.Reindex("a.go"); !errors.As(err, &he) || !strings.Contains(err.Error(), "no chunker for .go: start a build that has it") {
+	if err := e.ix.Reindex(context.Background(), "a.go"); !errors.As(err, &he) || !strings.Contains(err.Error(), "no chunker for .go: start a build that has it") {
 		t.Fatalf("Reindex(a.go): %v", err)
 	}
 	// seen unchanged, then edited: held all along, never re-cut
@@ -134,7 +134,7 @@ func TestADaemonHoldsWhatItCannotReadAgain(t *testing.T) {
 	e.write("a.go", "func Kestrel() {\n\thover() // edited\n}\n")
 	e.ix.Touch("a.go")
 	e.eventually("a.go stale", func() bool { return hold("kestrel") == HoldStale })
-	_ = e.ix.Reindex("")
+	_ = e.ix.Reindex(context.Background(), "")
 	e.eventually("the whole workspace checked", func() bool { return status().HeldUnchecked == 0 && e.pendingJobs() == 0 })
 	if got := e.indexerOf("a.go"); got != recorded {
 		t.Fatalf("a held document was reinterpreted: %q, was %q", got, recorded)
@@ -150,7 +150,7 @@ func TestADaemonHoldsWhatItCannotReadAgain(t *testing.T) {
 	// the rules delete it; included again, it is this daemon's
 	e.open(Options{Match: testMatch})
 	e.ix.Touch("a.go")
-	e.eventually("a.go excluded", func() bool { _, ok := e.store.Version("a.go"); return !ok })
+	e.eventually("a.go excluded", func() bool { _, ok, _ := e.store.Version(context.Background(), "a.go"); return !ok })
 	if st := status(); st.Held != 0 {
 		t.Fatalf("after excluding a.go: status %+v", st)
 	}
@@ -193,11 +193,11 @@ func TestADerivedDocumentIsHeldNotDeleted(t *testing.T) {
 		st, err := e.ix.Status(ctx)
 		return err == nil && st.Held == 1 && st.HeldUnchecked == 0
 	})
-	if _, ok := e.store.Version("a.pdf"); !ok {
+	if _, ok, _ := e.store.Version(context.Background(), "a.pdf"); !ok {
 		t.Fatal("the derived document was deleted")
 	}
 	var he *HeldError
-	if err := e.ix.Reindex("a.pdf"); !errors.As(err, &he) || !strings.Contains(err.Error(), "no deriver for .pdf") {
+	if err := e.ix.Reindex(context.Background(), "a.pdf"); !errors.As(err, &he) || !strings.Contains(err.Error(), "no deriver for .pdf") {
 		t.Fatalf("Reindex(a.pdf): %v", err)
 	}
 }

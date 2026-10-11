@@ -168,7 +168,7 @@ func TestARestartDerivesOnlyWhatChanged(t *testing.T) {
 		t.Fatalf("status %+v, %v: want the two DOCX files held among six documents", st, err)
 	}
 	for _, p := range []string{"c.docx", "d.docx"} {
-		if _, ok := w.Index().Store().Version(p); !ok {
+		if _, ok, _ := w.Index().Store().Version(context.Background(), p); !ok {
 			t.Fatalf("held %s left the index", p)
 		}
 	}

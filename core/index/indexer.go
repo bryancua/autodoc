@@ -240,9 +240,9 @@ func (x *Indexer) EmbeddingReady() bool {
 // bypasses the fast path. "" is the whole workspace: every indexed document, and, through the
 // Rescanner, the files the index has not seen; the held among them are only checked against disk.
 // A held path alone is refused (HeldError), naming the way out.
-func (x *Indexer) Reindex(path string) error {
+func (x *Indexer) Reindex(ctx context.Context, path string) error {
 	if path != "" {
-		h, err := x.holding(context.Background())
+		h, err := x.holding(ctx)
 		if err != nil {
 			return err
 		}
@@ -252,7 +252,11 @@ func (x *Indexer) Reindex(path string) error {
 		x.touch(path, true)
 		return nil
 	}
-	for _, p := range x.store.PathsUnder(".") {
+	indexed, err := x.store.PathsUnder(ctx, ".")
+	if err != nil {
+		return err
+	}
+	for _, p := range indexed {
 		x.touch(p, true)
 	}
 	x.mu.Lock()
@@ -289,8 +293,12 @@ func (x *Indexer) touch(path string, force bool) {
 }
 
 // Version and PathsUnder read the store: with Touch, the Indexer is what core/follow follows into.
-func (x *Indexer) Version(path string) (vfs.Version, bool) { return x.store.Version(path) }
-func (x *Indexer) PathsUnder(dir string) []string          { return x.store.PathsUnder(dir) }
+func (x *Indexer) Version(ctx context.Context, path string) (vfs.Version, bool, error) {
+	return x.store.Version(ctx, path)
+}
+func (x *Indexer) PathsUnder(ctx context.Context, dir string) ([]string, error) {
+	return x.store.PathsUnder(ctx, dir)
+}
 
 // Run writes the store until ctx ends. It first takes up the jobs a previous run left, and every
 // document indexed under another IndexerVersion.
@@ -530,7 +538,10 @@ func (x *Indexer) prepare(ctx context.Context, w workItem) *prepared {
 	}
 	if _, ok := h.of(w.path); ok {
 		p.hold, p.holdState = true, HoldCurrent
-		if v, ok := x.store.Version(w.path); !ok || v != fi.Version {
+		if v, ok, err := x.store.Version(ctx, w.path); err != nil {
+			p.err = err
+			return p
+		} else if !ok || v != fi.Version {
 			p.holdState = HoldStale
 		}
 		return p
@@ -543,7 +554,10 @@ func (x *Indexer) prepare(ctx context.Context, w workItem) *prepared {
 	if !w.force {
 		// a derived document's identity is the frozen one: an unchanged file is derived again only
 		// when that changed
-		if v, ok := x.store.Version(w.path); ok && v == fi.Version && x.store.indexer(w.path) == p.indexer {
+		if v, ok, err := x.store.Version(ctx, w.path); err != nil {
+			p.err = err
+			return p
+		} else if ok && v == fi.Version && x.store.indexer(ctx, w.path) == p.indexer {
 			p.skip = true
 			return p
 		}
@@ -630,9 +644,11 @@ func (x *Indexer) prepare(ctx context.Context, w workItem) *prepared {
 	return p
 }
 
-func (s *Store) indexer(path string) string {
+// indexer is the identity path was indexed under; "" for none, or a read that failed, which never
+// matches an identity and so has the file read again.
+func (s *Store) indexer(ctx context.Context, path string) string {
 	var v string
-	_ = s.read(context.Background(), func(tx *store.Tx) error {
+	_ = s.read(ctx, func(tx *store.Tx) error {
 		d, err := s.sc.Documents(tx).With(store.DocPath, path).Get(store.DocIndexer)
 		if err == nil {
 			v = d.Indexer
