@@ -13,7 +13,7 @@ func TestTheLeaderCardsColumnsAlign(t *testing.T) {
 	row := regexp.MustCompile(`^(\S+)  (.+?) {2,}(\S+)  `)
 	lone := regexp.MustCompile(`^\S+  \S.*\S$`)
 	col := -1
-	lines := strings.Split(leaderText, "\n")
+	lines := strings.Split(cardText(leaderKeys), "\n")
 	for i, line := range lines {
 		m := row.FindStringSubmatchIndex(line)
 		if m == nil && i == len(lines)-1 && lone.MatchString(line) && !strings.Contains(line, "   ") {

@@ -49,9 +49,8 @@ Window {
     syntax.import: Theme.syntax.import
     syntax.operator: Theme.syntax.operator
 
-    // ---- keys: they fire whichever widget has focus, when it leaves them ----
-    // Space and Ctrl+h/j/k/l reach here from the page only in Vim's Normal mode: Insert mode, and
-    // the Text editor mode, type them. Ctrl+Space is the leader in every editor mode.
+    // the Window's keys fire whichever widget has focus, when it leaves them (tui/keys.go)
+    // ---- the Window's keys: generated from tui/keys.go (go test ./tui -run TestKeysAreGenerated -update) ----
     Shortcut { sequence: "Space"; onActivated: leader.open() }
     Shortcut { sequence: "Ctrl+Space"; onActivated: leader.open() }
     Shortcut { sequence: "Ctrl+H"; onActivated: App.movePane("h") }
@@ -61,27 +60,20 @@ Window {
     Shortcut { sequence: "Ctrl+S"; onActivated: App.save() }
     Shortcut { sequence: "Ctrl+O"; onActivated: App.openPicker() }
     Shortcut { sequence: "Ctrl+N"; onActivated: App.newFile() }
-    // Ctrl+G, and / where the editor leaves it (Normal mode), as vim's search: the Vim keyset takes
-    // Ctrl+F and Ctrl+B to page
     Shortcut { sequence: "Ctrl+G"; onActivated: App.openSearch() }
-    // the command line in every editor mode, on : with Ctrl: the Text mode types :; a terminal
-    // sends Ctrl+; only with kitty's keyboard protocol, so Search › Command line… is always there
     Shortcut { sequence: "Ctrl+;"; onActivated: App.openCommandLine() }
-    // / finds in the pane with the keyboard; n and N find again (find.go)
     Shortcut { sequence: "/"; onActivated: App.openFind() }
     Shortcut { sequence: "n"; onActivated: App.findNext() }
     Shortcut { sequence: "Shift+N"; onActivated: App.findPrevious() }
-    // d in the Relations drawer shows the second ring, or hides it (relations.go); elsewhere nothing
     Shortcut { sequence: "d"; onActivated: App.relationsDepth() }
     Shortcut { sequence: "Ctrl+W"; onActivated: App.pickWorkspace() }
     Shortcut { sequence: "Ctrl+Q"; onActivated: App.quit() }
     Shortcut { sequence: "F1"; onActivated: help.open() }
-    // the window's zoom (fonts.go); nothing in a terminal
     Shortcut { sequence: "Ctrl+="; onActivated: App.zoomWindow("in") }
     Shortcut { sequence: "Ctrl+-"; onActivated: App.zoomWindow("out") }
     Shortcut { sequence: "Ctrl+0"; onActivated: App.setZoom(100) }
-    // ? is the Vim keys' card, in Normal mode (the Text mode types it); ? again closes it
     Shortcut { sequence: "?"; onActivated: App.toggleVimKeys() }
+    // ---- end of the generated keys ----
 
     MenuBar {
         id: menuBar
