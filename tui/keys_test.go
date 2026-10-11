@@ -9,20 +9,27 @@ import (
 
 var updateKeys = flag.Bool("update", false, "rewrite the files generated from the key catalog (keys.go)")
 
-// TestKeysAreGenerated: main.qml's Window keys and views/Leader.qml are the catalog's, the
-// features' keys included; -update rewrites them.
+// TestKeysAreGenerated: main.qml's Window keys and its cards' declarations, and each card's
+// views/<View>.qml, are the catalog's, the features' keys and cards included; -update rewrites them.
 func TestKeysAreGenerated(t *testing.T) {
 	h := newHost(NewSession("unused", nil), Options{})
-	window, leader := keyCatalog(h.features())
+	k := keyCatalog(h.features())
+	if err := k.check(); err != nil {
+		t.Fatal(err)
+	}
 	mainQML, err := os.ReadFile("qml/main.qml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantMain, err := withWindowKeys(string(mainQML), window)
+	wantMain, err := k.withGenerated(string(mainQML))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for path, want := range map[string]string{"qml/main.qml": wantMain, "qml/views/Leader.qml": leaderQML(leader)} {
+	files := map[string]string{"qml/main.qml": wantMain}
+	for _, c := range k.cards {
+		files["qml/views/"+c.View+".qml"] = cardQML(c, k.on(c.ID))
+	}
+	for path, want := range files {
 		if *updateKeys {
 			if err := os.WriteFile(path, []byte(want), 0o644); err != nil {
 				t.Fatal(err)
@@ -39,45 +46,101 @@ func TestKeysAreGenerated(t *testing.T) {
 	}
 }
 
-// Every Window key is named in the help, as help names it; every leader key is on the card, and
-// the card is in the help.
+// Every Window key is named in the help, as help names it; every card key is on its card, and
+// every card is in the help under its heading.
 func TestEveryKeyIsInTheHelp(t *testing.T) {
-	help := helpText(leaderKeys)
-	for _, k := range windowKeys {
-		if !strings.Contains(help, k.Show) {
-			t.Errorf("the Window's %s (%s) is not in the help", k.Seq, k.Show)
+	k := keyCatalog(nil)
+	help := helpText(k)
+	for _, key := range k.on("") {
+		if !strings.Contains(help, key.Show) {
+			t.Errorf("the Window's %s (%s) is not in the help", key.Seq, key.Show)
 		}
 	}
-	card := cardText(leaderKeys)
-	for _, k := range leaderKeys {
-		if !strings.Contains(card, k.Show+"  "+k.Does) {
-			t.Errorf("SPC %s is not on the card", k.Show)
+	for _, c := range k.cards {
+		text := cardText(k.on(c.ID))
+		for _, key := range k.on(c.ID) {
+			if !strings.Contains(text, key.Show+"  "+key.Does) {
+				t.Errorf("%s is not on the card %s", key.Show, c.ID)
+			}
 		}
-	}
-	if !strings.Contains(help, strings.ReplaceAll(card, "\n", "\n  ")) {
-		t.Error("the help does not hold the leader card")
+		if !strings.Contains(help, c.Help+"\n  "+strings.ReplaceAll(text, "\n", "\n  ")) {
+			t.Errorf("the help does not hold the card %s", c.ID)
+		}
 	}
 }
 
-// A sequence two keys of one place take is refused when the registry is built.
-func TestTheRegistryRefusesAKeyTakenTwice(t *testing.T) {
-	twice := &keyedFake{fake: fake{name: "b"}, leader: []Key{{Seq: "x", Show: "x", Does: "mine", Run: "App.x()"}}}
-	if _, err := newRegistry(twice); err == nil || !strings.Contains(err.Error(), "the leader card's x is taken twice") {
-		t.Errorf("SPC x twice: %v", err)
+// A card a key opens: its own file and text, its keys closing it before they run, Backspace back
+// to the card it came from, and its keys in the help.
+func TestACardOpensFromAKey(t *testing.T) {
+	agents := &keyedFake{fake: fake{name: "agents"},
+		cards: []Card{{ID: "agentsCard", View: "AgentsCard", Title: "SPC a — agents", Back: leader, Help: "SPC a — AGENTS"}},
+		keys: []Key{
+			{Card: leader, Seq: "Shift+B", Show: "B", Does: "agents…", Opens: "agentsCard"},
+			{Card: "agentsCard", Seq: "b", Show: "b", Does: "send the buffer", Run: `App.runCommand("agent.buffer")`},
+			{Card: "agentsCard", Seq: "f", Show: "f", Does: "send the selection", Run: `App.runCommand("agent.selection")`},
+		}}
+	k := keyCatalog([]Feature{agents})
+	if err := k.check(); err != nil {
+		t.Fatal(err)
 	}
-	also := &keyedFake{fake: fake{name: "b"}, window: []Key{{Seq: "F2", Also: []string{"Ctrl+S"}, Run: "App.x()"}}}
-	if _, err := newRegistry(also); err == nil || !strings.Contains(err.Error(), "the Window's Ctrl+S is taken twice") {
-		t.Errorf("Ctrl+S twice: %v", err)
+	c, _ := k.card("agentsCard")
+	qml := cardQML(c, k.on("agentsCard"))
+	for _, want := range []string{
+		"id: agentsCard",
+		`title: "SPC a — agents"`,
+		"text: App.agentsCardText",
+		`Shortcut { sequence: "Backspace"; onActivated: { agentsCard.close(); leader.open() } }`,
+		`Shortcut { sequence: "b"; onActivated: { agentsCard.close(); App.runCommand("agent.buffer") } }`,
+		"Backspace goes back",
+	} {
+		if !strings.Contains(qml, want) {
+			t.Errorf("the card's QML lacks %q:\n%s", want, qml)
+		}
 	}
-	if _, err := newRegistry(&keyedFake{fake: fake{name: "b"}, leader: []Key{{Seq: "Shift+X", Show: "X", Does: "mine", Run: "App.x()"}}}); err != nil {
+	if lq, _ := k.card(leader); !strings.Contains(cardQML(lq, k.on(leader)), `Shortcut { sequence: "Shift+B"; onActivated: { leader.close(); agentsCard.open() } }`) {
+		t.Error("SPC B does not close SPC's card and open the agents'")
+	}
+	if got := k.cardState()["App.agentsCardText"]; got != "b  send the buffer  f  send the selection" {
+		t.Errorf("the card's text: %q", got)
+	}
+	main, err := k.withGenerated(keysBegin + keysEnd + cardsBegin + cardsEnd)
+	if err != nil || !strings.Contains(main, "    AgentsCard { id: agentsCard }\n") || !strings.Contains(main, "    Leader { id: leader }\n") {
+		t.Errorf("the cards' declarations: %v\n%s", err, main)
+	}
+	if !strings.Contains(helpText(k), "SPC a — AGENTS\n  b  send the buffer") {
+		t.Error("the help lacks the agents card")
+	}
+	if _, err := keyCatalog(nil).withGenerated("no markers"); err == nil {
+		t.Error("a main.qml without the markers was rewritten")
+	}
+}
+
+// The registry refuses a sequence two keys of one place take, a card no key opens or declared twice,
+// and a key on or opening a card nobody declared.
+func TestTheRegistryRefusesKeysThatDoNotFit(t *testing.T) {
+	for want, f := range map[string]*keyedFake{
+		"the card leader's x is taken twice": {keys: []Key{{Card: leader, Seq: "x", Show: "x", Does: "mine", Run: "App.x()"}}},
+		"the Window's Ctrl+S is taken twice": {keys: []Key{{Seq: "F2", Also: []string{"Ctrl+S"}, Run: "App.x()"}}},
+		"no key opens the card lonely":       {cards: []Card{{ID: "lonely", View: "Lonely"}}},
+		"the card leader is declared twice":  {cards: []Card{{ID: leader, View: "Other"}}, keys: []Key{{Seq: "F3", Opens: leader}}},
+		"which is not declared":              {keys: []Key{{Card: "nowhere", Seq: "z", Run: "App.x()"}}},
+		"opens the card gone, which is not":  {keys: []Key{{Card: leader, Seq: "Shift+Z", Opens: "gone"}}},
+	} {
+		f.fake = fake{name: "b"}
+		if _, err := newRegistry(f); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("want %q: %v", want, err)
+		}
+	}
+	if _, err := newRegistry(&keyedFake{fake: fake{name: "b"}, keys: []Key{{Card: leader, Seq: "Shift+X", Show: "X", Does: "mine", Run: "App.x()"}}}); err != nil {
 		t.Errorf("a key of a feature's own: %v", err)
 	}
 }
 
 type keyedFake struct {
 	fake
-	window, leader []Key
+	keys  []Key
+	cards []Card
 }
 
-func (f *keyedFake) WindowKeys() []Key { return f.window }
-func (f *keyedFake) LeaderKeys() []Key { return f.leader }
+func (f *keyedFake) Keys() []Key   { return f.keys }
+func (f *keyedFake) Cards() []Card { return f.cards }

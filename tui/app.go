@@ -55,14 +55,13 @@ type Host struct {
 	reg      *registry // the features, merged (feature.go)
 	asker    *asker    // the one yes-or-no question (ask.go)
 	prefRows []PrefSpec
-	// the keys, the host's and the features' (keys.go)
-	keysWindow, keysLeader []Key              // every preference declared, the host's and the features' (prefspec.go)
-	started                bool               // the first preferences were applied: the program has started (applyPrefs)
-	editor                 editorWidget       // main.qml's Editor, terminal or native (editor.go)
-	core                   *widget.EditorCore // its core: the text, the cursor and the modes
-	gui                    bool               // in a window (Options.GUI): the theme kept is gui.theme
-	ctx                    context.Context
-	cancel                 context.CancelFunc
+	keys     keyset             // the keys and their cards, the host's and the features' (keys.go)              // every preference declared, the host's and the features' (prefspec.go)
+	started  bool               // the first preferences were applied: the program has started (applyPrefs)
+	editor   editorWidget       // main.qml's Editor, terminal or native (editor.go)
+	core     *widget.EditorCore // its core: the text, the cursor and the modes
+	gui      bool               // in a window (Options.GUI): the theme kept is gui.theme
+	ctx      context.Context
+	cancel   context.CancelFunc
 
 	about     string
 	aboutInfo AboutInfo // what Help › About lists (help.go)
