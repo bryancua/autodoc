@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/yongjohnlee80/golib/dao"
 	"github.com/yongjohnlee80/golib/errs"
@@ -204,7 +203,7 @@ func (s *Store) setConnection(tx *Tx, id int64, role string, c ConnectionSpec) e
 		schema = c.Schema
 	}
 	return s.Workspace(id).Connections(tx).Set(ConnRole, role).Set(ConnEngine, c.Engine).Set(ConnDSN, sealed).
-		Set(ConnSchema, schema).Set(ConnUpdatedAt, time.Now().Unix()).Upsert()
+		Set(ConnSchema, schema).Set(ConnUpdatedAt, s.now.Now().Unix()).Upsert()
 }
 
 func errSetting(reason string) error { return &SettingError{Reason: reason} }

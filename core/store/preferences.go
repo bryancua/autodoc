@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"time"
 
 	"github.com/yongjohnlee80/golib/dao"
 	"github.com/yongjohnlee80/golib/errs"
@@ -49,6 +48,6 @@ func (s *Store) SetPreference(ctx context.Context, name, value string) error {
 	}
 	return s.Write(ctx, func(tx *Tx) error {
 		return tx.t.preferences.On(tx.tx).Set(PrefName, name).Set(PrefValue, value).
-			Set(PrefUpdatedAt, time.Now().Unix()).Upsert()
+			Set(PrefUpdatedAt, s.now.Now().Unix()).Upsert()
 	})
 }

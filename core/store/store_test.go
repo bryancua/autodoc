@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/yongjohnlee80/golib/dao"
 	"github.com/yongjohnlee80/golib/dao/sqlite"
@@ -509,5 +510,33 @@ func TestPreferencesAreKeptByName(t *testing.T) {
 	}
 	if fmt.Sprint(got) != "map[tui.ruler:120 tui.theme:retro]" {
 		t.Fatalf("preferences after reopening: %v", got)
+	}
+}
+
+// The store's recorded times read its clock: an event's time, a workspace's updated_at.
+func TestTheStoreRecordsByItsClock(t *testing.T) {
+	at := time.Date(2026, 10, 12, 9, 30, 0, 0, time.UTC)
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "autodoc.db"), WithClock(func() time.Time { return at }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if got := s.Clock().Now(); !got.Equal(at) {
+		t.Fatalf("Clock reads %v", got)
+	}
+	w, err := s.AddWorkspace(ctx, "kb", t.TempDir(), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.CreatedAt != at.Unix() || w.UpdatedAt != at.Unix() {
+		t.Errorf("a new workspace: created %d, updated %d, want %d", w.CreatedAt, w.UpdatedAt, at.Unix())
+	}
+	if _, err := s.AppendEvent(ctx, Event{Kind: "doc.write", Workspace: "kb"}); err != nil {
+		t.Fatal(err)
+	}
+	evs, _, _, err := s.Events(ctx, 0, 10)
+	if err != nil || len(evs) != 1 || evs[0].At != at.Unix() {
+		t.Errorf("the event's time: %+v %v, want %d", evs, err, at.Unix())
 	}
 }
