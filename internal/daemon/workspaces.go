@@ -177,13 +177,13 @@ func (m *Workspaces) OpenAll() error {
 		if !pastDefault(w.Exclude) {
 			continue
 		}
-		if err := m.db.SetWorkspaceExclude(m.ctx, w.ID, config.DefaultExclude); err != nil {
+		if err := m.db.SetWorkspaceExclude(m.ctx, w.ID, config.DefaultExclude()); err != nil {
 			logger.Warning(m.opts.Log, err, "workspace kept its old default exclude: "+w.Name)
 			continue
 		}
-		ws[i].Exclude = config.DefaultExclude
+		ws[i].Exclude = config.DefaultExclude()
 		logger.Info(m.opts.Log, logger.Fields{"event": "workspace moved to the current default exclude",
-			"workspace": w.Name, "exclude": config.DefaultExclude})
+			"workspace": w.Name, "exclude": config.DefaultExclude()})
 	}
 	for _, w := range ws {
 		s := m.serve(w.ID, config.Workspace{Name: w.Name, Root: w.Root, Include: w.Include, Exclude: w.Exclude})
@@ -235,10 +235,10 @@ func (m *Workspaces) start(id int64, c config.Workspace) (*served, error) {
 		return nil, err
 	}
 	if c.Include == nil {
-		c.Include = config.DefaultInclude
+		c.Include = config.DefaultInclude()
 	}
 	if c.Exclude == nil {
-		c.Exclude = config.DefaultExclude
+		c.Exclude = config.DefaultExclude()
 	}
 	schemaPath, err := m.db.SchemaPath(m.ctx, id)
 	if err != nil {

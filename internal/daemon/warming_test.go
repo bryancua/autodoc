@@ -119,13 +119,13 @@ func TestAPastDefaultExcludeMovesToTheCurrentOne(t *testing.T) {
 	for _, w := range ws {
 		got[w.Name] = w.Exclude
 	}
-	if !slices.Equal(got["old"], config.DefaultExclude) {
-		t.Errorf("the workspace on the old default excludes %v, want %v", got["old"], config.DefaultExclude)
+	if !slices.Equal(got["old"], config.DefaultExclude()) {
+		t.Errorf("the workspace on the old default excludes %v, want %v", got["old"], config.DefaultExclude())
 	}
 	if !slices.Equal(got["custom"], []string{".git/**", "drafts/**"}) {
 		t.Errorf("the workspace with its own patterns excludes %v, want them kept", got["custom"])
 	}
-	if w, _ := m.Get("old"); !slices.Equal(w.Exclude(), config.DefaultExclude) {
+	if w, _ := m.Get("old"); !slices.Equal(w.Exclude(), config.DefaultExclude()) {
 		t.Errorf("the served workspace excludes %v, want the current default", w.Exclude())
 	}
 }
