@@ -121,7 +121,7 @@ func TestTheWindowsFontsComeFromTheStore(t *testing.T) {
 }
 
 // TestZoomStepsStopAtTheEnds: Ctrl+= and Ctrl+- move between the steps and stop at 100% and 200%;
-// Ctrl+0 is 100%.
+// Ctrl+0 is 100%, and the first step in from it is 110%.
 func TestZoomStepsStopAtTheEnds(t *testing.T) {
 	fonts := &fakeFonts{}
 	d, r := runWindowTUI(t, map[string]string{"gui.zoom": "175"}, fonts)
@@ -132,7 +132,9 @@ func TestZoomStepsStopAtTheEnds(t *testing.T) {
 	storedPref(t, d, r, "gui.zoom", "200")
 	r.keys(t, tuicore.KeyEvent{Kind: tuicore.KeyPress, Code: '0', Mods: tuicore.ModCtrl})
 	storedPref(t, d, r, "gui.zoom", "100")
-	onLoop(r, func() bool { r.h.zoomStep(-1); return true })
+	onLoop(r, func() bool { r.h.zoomStep(1); return true }) // the first step in is 110%
+	storedPref(t, d, r, "gui.zoom", "110")
+	onLoop(r, func() bool { r.h.zoomStep(-1); r.h.zoomStep(-1); return true })
 	if got := onLoop(r, func() int { return zoomOf(r.h.prefs) }); got != 100 {
 		t.Errorf("Ctrl+- under 100%%: %d", got)
 	}
@@ -343,32 +345,33 @@ func TestZoomStopsBeforeTheScreenIsTooSmall(t *testing.T) {
 // TestTwoQuickZoomsAreJudgedByTheWindowDrawn: a second Ctrl+= before the window has drawn the
 // first is judged by the grid the window still has, not the one it will have.
 func TestTwoQuickZoomsAreJudgedByTheWindowDrawn(t *testing.T) {
-	fonts := &fakeFonts{grid: tuicore.Size{W: 120, H: 40}, lag: true}
+	// 96 × 40 at 100%: 110% leaves 87 columns, 125% 76; that grid judged as 110%'s would leave 84
+	fonts := &fakeFonts{grid: tuicore.Size{W: 96, H: 40}, lag: true}
 	d, r := runWindowTUI(t, nil, fonts)
 	r.s.WaitFor(t, "the fonts told", func(string) bool { return len(fonts.all()) > 0 })
 	fonts.frame()                                           // the window drew its fonts at 100%
-	onLoop(r, func() bool { r.h.zoomStep(1); return true }) // 125%: 96 columns
-	storedPref(t, d, r, "gui.zoom", "125")
-	// the window still reports 120 × 40, drawn at 100%: 150% would leave 80 columns
+	onLoop(r, func() bool { r.h.zoomStep(1); return true }) // 110%: 87 columns
+	storedPref(t, d, r, "gui.zoom", "110")
+	// the window still reports 96 × 40, drawn at 100%: 125% would leave 76 columns
 	onLoop(r, func() bool { r.h.zoomStep(1); return true })
-	if said := onLoop(r, func() string { return r.h.noticeLog.items[0].text }); !strings.Contains(said, "zoom 150% is too large") {
+	if said := onLoop(r, func() string { return r.h.noticeLog.items[0].text }); !strings.Contains(said, "zoom 125% is too large") {
 		t.Errorf("a second quick Ctrl+= said %q", said)
 	}
 }
 
-// TestThreeQuickZoomsAreJudgedByTheWindowDrawn: several Ctrl+= before the window has drawn any of
+// TestSeveralQuickZoomsAreJudgedByTheWindowDrawn: several Ctrl+= before the window has drawn any of
 // them all judge by the grid it still has, drawn at 100%, so the step that would leave it under 80
 // columns is refused (Lector's #79 r2: 130 columns, 175% is 74). And a frame drawn between two of
 // them is drawn at the latest told, which the next step judges by.
-func TestThreeQuickZoomsAreJudgedByTheWindowDrawn(t *testing.T) {
+func TestSeveralQuickZoomsAreJudgedByTheWindowDrawn(t *testing.T) {
 	fonts := &fakeFonts{grid: tuicore.Size{W: 130, H: 40}, lag: true}
 	d, r := runWindowTUI(t, nil, fonts)
 	r.s.WaitFor(t, "the fonts told", func(string) bool { return len(fonts.all()) > 0 })
 	fonts.frame() // the window drew its fonts at 100%
-	onLoop(r, func() bool { r.h.zoomStep(1); r.h.zoomStep(1); r.h.zoomStep(1); return true })
+	onLoop(r, func() bool { r.h.zoomStep(1); r.h.zoomStep(1); r.h.zoomStep(1); r.h.zoomStep(1); return true })
 	storedPref(t, d, r, "gui.zoom", "150")
 	if slices.Contains(fonts.all(), "zoom 175") {
-		t.Errorf("accepted 175%% after three quick zooms: 74 columns of 130; told %v", fonts.all())
+		t.Errorf("accepted 175%% after four quick zooms: 74 columns of 130; told %v", fonts.all())
 	}
 
 	// a frame now draws 150%: the next step judges by that grid, 86 columns, and 175% is refused
@@ -389,7 +392,7 @@ func TestAGridMeasuredBeforeAZoomIsJudgedByItsOwnFonts(t *testing.T) {
 	d, r := runWindowTUI(t, nil, fonts)
 	r.s.WaitFor(t, "the fonts told", func(string) bool { return len(fonts.all()) > 0 })
 	fonts.frame()
-	onLoop(r, func() bool { r.h.zoomStep(1); return true }) // 125%
+	onLoop(r, func() bool { r.h.zoomStep(1); r.h.zoomStep(1); return true }) // 110%, then 125%
 	at125 := fonts.FontGeneration()
 	onLoop(r, func() bool { r.h.zoomStep(1); return true }) // 150%
 	storedPref(t, d, r, "gui.zoom", "150")

@@ -222,7 +222,7 @@ func (a *agents) startInstance(p agentProfile) (*agentInstance, error) {
 	}
 	if instance == nil {
 		instance = &agentInstance{profile: p, workspace: ws, owner: panel}
-		id, err := panel.Add(p.Codename, TerminalConfig{Command: path, Args: args, Dir: dir, VimKeys: a.c.Prefs().keymap == "vim",
+		id, err := panel.Add(p.Codename, TerminalConfig{Command: path, Args: args, Dir: dir,
 			Exited: func(code int) { a.instanceExited(instance, code) }})
 		if err != nil {
 			return nil, err

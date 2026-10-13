@@ -229,9 +229,9 @@ THE PANELS
   and Hide (the panel closed, every shell running on). Theme and font… (Preferences' terminal row and Options › Fonts
   and zoom… too) sets the terminals' theme, their text, background and cursor only, a program's
   own colours staying its own, and in a window their font; Esc in it puts back what was there. Every key goes to the
-  shell; Ctrl+\ Ctrl+n leaves for Normal mode, where h j k l, w b e, gg G, Ctrl+u/d/b/f, / and ?
-  move over its history, v or V selects and y copies, and i or Enter goes back. In the Vim
-  editor mode, Esc leaves too, except in a full-screen program (vim, less), which needs it.
+  shell, Esc too; Ctrl+T (or Ctrl+\ Ctrl+n) leaves for Normal mode, where h j k l, w b e, gg G,
+  Ctrl+u/d/b/f, / and ? move over its history, v or V selects and y copies, and Ctrl+T, i or
+  Enter goes back. The agent panel's keys are the same.
   Escape in Normal mode, or SPC ` + "`" + ` again, hides it; the keyboard goes back where it was. When
   a shell exits (exit, Ctrl+D) its tab closes, a failing exit kept as a notice; the last one's
   exit closes the pane, and the next SPC ` + "`" + ` starts another.

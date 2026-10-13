@@ -155,7 +155,6 @@ Window {
             MenuSeparator {}
             MenuItem { text: "&New store…"; onTriggered: App.todoNew() }
             MenuItem { text: "&Load store…"; onTriggered: App.todoLoad() }
-            MenuItem { text: "La&bel store…  (L)"; onTriggered: App.todoLabel() }
         }
         Menu {
             title: "&Options"
@@ -390,7 +389,9 @@ Window {
             // F11 (maximize) reaches the Window with the keyboard in a shell: its program never gets it
             hostKeys: "F11"
             emptyText: "No shell running. Press + to start one."
-            vimKeys: App.keymapVim
+            // Ctrl+T toggles its input and Normal mode, in either editor mode; Esc goes to the program
+            modeKey: "Ctrl+T"
+            vimKeys: false
             // the terminals' theme (terminal.go): its text and background, the strip's the page's
             palette.base: App.terminalBase
             palette.text: App.terminalText
@@ -428,7 +429,9 @@ Window {
             // F11 (maximize) reaches the Window with the keyboard in a shell: its program never gets it
             hostKeys: "F11"
             emptyText: "No agent running. Press + to start one of the profiles."
-            vimKeys: App.keymapVim
+            // Ctrl+T toggles its input and Normal mode, in either editor mode; Esc goes to the program
+            modeKey: "Ctrl+T"
+            vimKeys: false
             // as the terminal's: the terminals' theme and face, the contrast raised against it
             palette.base: App.terminalBase
             palette.text: App.terminalText

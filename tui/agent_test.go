@@ -588,3 +588,24 @@ func TestF11WorksWithTheKeyboardInARunningAgent(t *testing.T) {
 	r.keys(t, decltest.Type("exit 7\r")...)
 	r.s.WaitFor(t, "the agent exited 7", func(string) bool { return r.noticed("fake exited (7)") })
 }
+
+// TestCtrlTTogglesTheAgentsModeAndEscIsTheAgents: in a running agent Esc is the agent's (two leave
+// the panel open, as Normal mode's second would not), and Ctrl+T goes to Normal mode, where w
+// reaches no program, and back: "exit 6" typed after starts the agent's line, as its exit* match
+// needs, so it exits 6 (a w or a Ctrl+T sent to it would make the line not match).
+func TestCtrlTTogglesTheAgentsModeAndEscIsTheAgents(t *testing.T) {
+	agent, _ := fakeAgent(t)
+	_, r, _ := runAgentTUI(t, t.TempDir(), []agentProfile{{Name: "fake", Command: shellQuote(agent)}}, "fake")
+	r.leader(t, 'g')
+	r.s.WaitForText(t, "started")
+	r.s.WaitFor(t, "the agent's keyboard", func(string) bool { return r.focused("agentView") })
+	r.keys(t, esc(), esc())
+	time.Sleep(150 * time.Millisecond)
+	if open := onLoop(r, func() bool { return r.h.panelOpen["agent"] }); !open || !r.focused("agentView") {
+		t.Fatal("Esc in a running agent left it")
+	}
+	r.keys(t, decltest.Type("\r")...) // the Escs' line ends; the agent hears it and reads on
+	r.keys(t, ctrlKey('t'), key('w'), ctrlKey('t'))
+	r.keys(t, decltest.Type("exit 6\r")...)
+	r.s.WaitFor(t, "the agent exited 6", func(string) bool { return r.noticed("fake exited (6)") })
+}

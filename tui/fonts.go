@@ -39,7 +39,7 @@ const (
 
 // zoomSteps are the zoom's steps, in percent: Options and the right-click menu offer them, and
 // Ctrl+= and Ctrl+- move between them.
-var zoomSteps = []int{100, 125, 150, 175, 200}
+var zoomSteps = []int{100, 110, 125, 150, 175, 200}
 
 // fontSizes are the cell font's sizes the Fonts dialog offers; defaultFontSize is the window's own.
 var fontSizes = []int{10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24}

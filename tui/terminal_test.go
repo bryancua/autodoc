@@ -129,11 +129,11 @@ func TestTheTerminalTogglesFromTheLeaderAndGivesTheKeyboardBack(t *testing.T) {
 		return strings.Contains(sc, root[max(0, len(root)-30):])
 	})
 
-	// Esc in input mode (Vim keys, the default keymap) leaves for Normal mode; the pane stays.
-	r.keys(t, esc())
+	// Ctrl+T leaves input mode for Normal mode; the pane stays.
+	r.keys(t, ctrlKey('t'))
 	time.Sleep(150 * time.Millisecond)
 	if !r.termShown() {
-		t.Fatal("Esc in input mode closed the pane")
+		t.Fatal("Ctrl+T in input mode closed the pane")
 	}
 	// Esc in Normal mode, with nothing to cancel, hides it; the page has the keyboard again.
 	r.keys(t, esc())
@@ -226,21 +226,40 @@ func TestTheTerminalsPlaceAndSizeFollowThePreferences(t *testing.T) {
 	}
 }
 
-// The keymap reaches a shell already running: with the Text keymap Esc is the shell's, and the
-// panel stays; with the Vim keymap the first Esc is Normal mode and the second hides the panel.
-func TestTheTerminalsVimKeysFollowTheEditorsKeymap(t *testing.T) {
-	_, r := runShellTUI(t, map[string]string{"tui.editor.keymap": "text"})
+// TestCtrlTTogglesTheTerminalsModeAndEscIsTheProgramsInEitherKeymap: in input mode Esc is the
+// program's, in the Vim keymap as in the Text one (cat -v shows the 0x1b it reads as ^[), the pane
+// staying; Ctrl+T goes to Normal mode, where keys move over the history and reach no program
+// (the b below), and back, the program never getting Ctrl+T itself (^T); Esc in Normal mode hides
+// the pane.
+func TestCtrlTTogglesTheTerminalsModeAndEscIsTheProgramsInEitherKeymap(t *testing.T) {
+	_, r := runShellTUI(t, nil) // the Vim keymap, the default
 	onLoop(r, func() bool { r.h.terminals.toggleTerminal(); return true })
 	r.s.WaitFor(t, "the terminal's keyboard", func(string) bool { return r.focused("terminalView") })
-	r.keys(t, esc(), esc())
-	r.keys(t, decltest.Type("\recho still-$((40+2))\r")...) // the shell had both Escs (a line of its own), and answers
-	r.s.WaitForText(t, "still-42")
-	if !r.termShown() || !r.focused("terminalView") {
-		t.Fatal("Esc left the shell with the Text keymap")
+	r.keys(t, decltest.Type("cat -v\r")...)
+	// escTo types Esc, then text and Enter, and waits for cat's ^[text: the Esc reached it.
+	escTo := func(text string) {
+		t.Helper()
+		r.keys(t, esc())
+		r.keys(t, decltest.Type(text+"\r")...)
+		r.s.WaitForText(t, "^["+text)
+		if !r.termShown() || !r.focused("terminalView") {
+			t.Fatalf("Esc before %q left the shell", text)
+		}
 	}
-	onLoop(r, func() bool { r.h.setKeymap("vim"); return true })
-	r.keys(t, esc(), esc())
-	r.s.WaitFor(t, "Normal mode, then hidden, with the Vim keymap", func(string) bool { return !r.termShown() })
+	escTo("vim-keymap")
+
+	r.keys(t, ctrlKey('t'), key('b'), ctrlKey('t'))
+	escTo("back-in-input")
+	if sc := r.s.String(); strings.Contains(sc, "b^[back") || strings.Contains(sc, "^T") {
+		t.Fatalf("Normal mode's b, or Ctrl+T itself, reached the program:\n%s", sc)
+	}
+
+	onLoop(r, func() bool { r.h.setKeymap("text"); return true })
+	escTo("text-keymap")
+
+	r.keys(t, ctrlKey('t'), esc())
+	r.s.WaitFor(t, "Normal mode's Esc hid the pane", func(string) bool { return !r.termShown() })
+	r.s.WaitFor(t, "the page's keyboard", func(string) bool { return r.focused("editor") })
 }
 
 // TestTheTerminalClosesWhenItsShellExits: exit (or Ctrl+D) closes the panel as SPC ` would, the
@@ -592,15 +611,15 @@ func TestTheTerminalsThemeIsTheirsAlone(t *testing.T) {
 	r.s.WaitFor(t, "the page's, after the switch: light", func(string) bool { _, bg := pale(); return bg == light })
 }
 
-// The Preferences terminal row's tooltip says the theme is the shells' and leaves a program's own
-// colours alone: the pointer resting on the row's description shows it.
+// The Preferences terminal theme's tooltip says the theme is the shells' and leaves a program's own
+// colours alone: the pointer resting on its label shows it.
 func TestTheTerminalThemeRowSaysWhatItColours(t *testing.T) {
 	_, r := runShellTUI(t, nil)
 	r.leader(t, ',')
-	r.s.WaitForText(t, "the terminal: from")
+	r.s.WaitForText(t, "terminal theme")
 	x, y := -1, -1
 	for row, line := range strings.Split(r.s.String(), "\n") {
-		if c := col(line, "the terminal: from"); c >= 0 {
+		if c := col(line, "terminal theme"); c >= 0 {
 			x, y = c+2, row
 		}
 	}

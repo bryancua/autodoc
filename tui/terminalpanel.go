@@ -14,7 +14,6 @@ import (
 type TerminalConfig struct {
 	Command, Dir string
 	Args, Env    []string
-	VimKeys      bool
 	Exited       func(int)
 }
 
@@ -64,7 +63,7 @@ func (p terminalPanel) Shutdown() TerminalCompletion { return p.tabs.ShutdownWit
 func (p terminalPanel) Add(label string, config TerminalConfig) (widget.TerminalTabID, error) {
 	return p.tabs.Add(label, widget.WithCommand(config.Command, append([]string(nil), config.Args...)...),
 		widget.WithDir(config.Dir), widget.WithEnv(append([]string(nil), config.Env...)...),
-		widget.WithVimKeys(config.VimKeys), widget.WithOnExit(config.Exited))
+		widget.WithOnExit(config.Exited))
 }
 func (p terminalPanel) Select(id widget.TerminalTabID) error { return p.tabs.Select(id) }
 func (p terminalPanel) Start(id widget.TerminalTabID) error  { return p.tabs.Start(id) }
