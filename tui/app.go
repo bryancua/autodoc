@@ -92,13 +92,13 @@ type Host struct {
 	searchWaitToast   bool
 	marks             marks
 	findMarks         marks // the page find's words, as the page's highlighter marks them (find.go)
-	openAt            int   // where the next file opened puts the cursor, a byte offset; -1 for its start
 
 	// find in a pane (find.go): the last find, and the cursors of the panes it moves
 	find findState
-	// the Relations drawer (relations.go), a feature of its own; back's history
-	rel     *related
-	history []fileRef
+	// the Relations drawer (relations.go), a feature of its own; the jump list across the
+	// documents (navigation.go)
+	rel   *related
+	jumps *widget.JumpList
 
 	// the preferences (prefs.go), and the panels open now (panels.go)
 	prefs                          prefs
@@ -329,7 +329,7 @@ func newHost(session *Session, opt Options) *Host {
 		families:        opt.FontFamilies,
 		defaultCellFont: opt.DefaultCellFont,
 		vectors:         newRows(tuidecl.NewListModel("key", "state", "model", "dims", "vectors", "f32", "bits", "keys", "total"), vectorRowOf),
-		openAt:          -1,
+		jumps:           widget.NewJumpList(0),
 		prefs:           defaultPrefsFor(opt.GUI),
 		gui:             opt.GUI,
 		panelOpen:       map[string]bool{},
@@ -358,6 +358,8 @@ func (h *Host) attach(p *tuidecl.Program) error {
 		return errors.New("main.qml declares no Editor with id: editor")
 	}
 	h.core = h.editor.Core()
+	h.core.SetJumps(h.jumps, h.jumpTo) // Ctrl+O and Ctrl+I walk the one list (navigation.go)
+	h.core.SetJumpView(h.jumpView)
 	startRendered(h.editor) // the GUI's page opens in its Rendered view (rendered_gui.go)
 	h.core.SetHighlightOverlay(func(line string, semantic []highlight.Span) []highlight.Span {
 		return markedSpans(&h.findMarks, line, semantic)
