@@ -239,7 +239,9 @@ terminal, as below; where it cannot, it shows the block's source and why.
   **Close**, **Profiles…**), **Theme and font…** (the terminals' theme, and in the GUI their font:
   the same settings as Preferences and Fonts and zoom…; Esc puts them back), **Maximize** (the
   panel filling the dock area; **Restore** while it does) and **Hide**, which closes the panel and
-  leaves every shell and agent running.
+  leaves every shell and agent running. Every key goes to the shell or agent, `Esc` included;
+  `Ctrl+T` toggles Normal mode, which moves over its history (`h j k l`, `/`, `v`, `y` …), and
+  `Esc` in Normal mode hides the panel. `Ctrl+T` on the page stays the Rendered view's.
 - **Every panel moves and resizes**: the explorer, the relations, the terminal, the agent and the
   HTML preview. `Alt` (`Option` on a Mac) with the left button drags one anywhere over the page;
   with the right button it resizes. `SPC L` (`Go › Arrange panel…`) does both from the keyboard:

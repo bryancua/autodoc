@@ -1152,6 +1152,20 @@ func TestTheOptionsMenu(t *testing.T) {
 	}
 }
 
+// TestTheTodosMenu: Todos opens the todos, and makes or loads a store; a store's label is the
+// store bar's Edit and L's, not the menu's.
+func TestTheTodosMenu(t *testing.T) {
+	d := startDaemon(t, map[string][]string{"kb": {"a.md", "a\n"}})
+	r := attached(t, d)
+	r.keys(t, decltest.Alt('t'))
+	r.s.WaitFor(t, "the Todos menu", func(sc string) bool {
+		return strings.Contains(sc, "Open todos…") && strings.Contains(sc, "New store…") && strings.Contains(sc, "Load store…")
+	})
+	if sc := r.s.String(); strings.Contains(sc, "Label store") {
+		t.Fatalf("Todos still has Label store…:\n%s", sc)
+	}
+}
+
 // TestTheTextKeymap: in the Text keymap the page types as an ordinary editor does — no i, Space a
 // space — Ctrl+Space opens the leader card, and Ctrl+S saves; the keymap is kept.
 func TestTheTextKeymap(t *testing.T) {
@@ -1199,6 +1213,61 @@ func screenRow(r *running, text string) int {
 		}
 	}
 	return -1
+}
+
+// prefLabels are the editor preferences' rows, by frame: each a label with its chooser beside it.
+var prefLabels = [][]string{
+	{"editor mode", "page width (40–400)", "theme", "wrap long lines", "line numbers", "indentation marks",
+		"image previews", "two-view documents", "terminal opens from", "terminal size", "terminal length", "terminal theme"},
+	{"hide the menu bar", "show the status line", "explorer opens from", "relations open from", "todos open from",
+		"agent opens from", "agent size", "agent length", "notifications in the", "a notification stays",
+		"About at startup", "look for updates"},
+}
+
+// TestEachPreferenceHasItsChooserOnItsRow: in the editor preferences every label is whole, on a row
+// of its own with its chooser beside it; the labels are one column in each frame and the choosers
+// start at one column after them; the dialog holds every row and its buttons, at the tests' screen
+// and at a small window's (the 80 × 24 a 200% zoom can leave).
+func TestEachPreferenceHasItsChooserOnItsRow(t *testing.T) {
+	for _, size := range [][2]int{{100, 30}, {80, 24}} {
+		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
+			d := startDaemon(t, map[string][]string{"kb": {"a.md", "a\n"}})
+			r := runTUISized(t, NewSession(d.sock, nil), Options{}, size[0], size[1])
+			r.ready(t)
+			r.leader(t, ',')
+			r.s.WaitForText(t, "Close (q)")
+			lines := strings.Split(r.s.String(), "\n")
+			for _, frame := range prefLabels {
+				labelAt, chooserAt := -1, -1
+				for _, label := range frame {
+					row, c := -1, -1
+					for y, l := range lines {
+						if c = col(l, label); c >= 0 {
+							row = y
+							break
+						}
+					}
+					if row < 0 {
+						t.Errorf("%q is not on the screen whole", label)
+						continue
+					}
+					rest := string([]rune(lines[row])[c+len([]rune(label)):])
+					gap := len([]rune(rest)) - len([]rune(strings.TrimLeft(rest, " ")))
+					if gap == 0 || strings.TrimSpace(rest) == "" {
+						t.Errorf("%q has no chooser beside it: %q", label, lines[row])
+						continue
+					}
+					at := c + len([]rune(label)) + gap
+					if labelAt < 0 {
+						labelAt, chooserAt = c, at
+					}
+					if c != labelAt || at != chooserAt {
+						t.Errorf("%q at column %d, its chooser at %d: want %d and %d, as the frame's first", label, c, at, labelAt, chooserAt)
+					}
+				}
+			}
+		})
+	}
 }
 
 // TestThePagesWidthAppliesAsTyped: in the editor's preferences, a width typed is the page's at

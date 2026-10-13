@@ -11,7 +11,8 @@ Dialog {
     dim: false
     helpText: App.prefsError
     // two sections, each framed and titled: the editor on the left, the screen around it on the
-    // right; a column apart, a column inside each border, and a row between the settings
+    // right; a column apart, a column inside each border. One setting a row: its label in a column
+    // of its own (Layout.preferredWidth), its chooser beside it, a blank row between groups
     Flex {
         direction: Tui.Horizontal
         Frame {
@@ -23,46 +24,69 @@ Dialog {
                 Flex {
                     direction: Tui.Vertical
                     Layout.fillWidth: true
-                    Text { text: "editor mode" }
-                    ComboBox { model: App.keymaps; textRole: "label"; currentIndex: App.keymapIndex; onActivated: App.setKeymapIndex(index) }
-                    Text { text: "" }
-                    Text { text: "page width, in columns (40–400)" }
-                    TextField { id: ruler; text: App.rulerText; onTextEdited: App.setRuler(text); onAccepted: App.setRuler(text) }
-                    Text { text: "" }
-                    Text { text: "theme" }
-                    ComboBox { model: App.themes; textRole: "label"; currentIndex: App.themeIndex; onActivated: App.setThemeIndex(index) }
-                    Text { text: "" }
-                    Text { text: "wrap long lines · line numbers" }
                     Flex {
                         direction: Tui.Horizontal
-                        ComboBox { model: App.yesNo; textRole: "label"; currentIndex: App.wrapIndex; onActivated: App.setWrapIndex(index) }
-                        Text { text: "  " }
-                        ComboBox { model: App.yesNo; textRole: "label"; currentIndex: App.lineNumbersIndex; onActivated: App.setLineNumbersIndex(index) }
+                        Text { text: "editor mode"; Layout.preferredWidth: 21 }
+                        ComboBox { model: App.keymaps; textRole: "label"; currentIndex: App.keymapIndex; onActivated: App.setKeymapIndex(index) }
+                    }
+                    Flex {
+                        direction: Tui.Horizontal
+                        Text { text: "page width (40–400)"; Layout.preferredWidth: 21; toolTipText: "the page's width, in columns: 40 to 400" }
+                        TextField { id: ruler; text: App.rulerText; onTextEdited: App.setRuler(text); onAccepted: App.setRuler(text) }
+                    }
+                    Flex {
+                        direction: Tui.Horizontal
+                        Text { text: "theme"; Layout.preferredWidth: 21 }
+                        ComboBox { model: App.themes; textRole: "label"; currentIndex: App.themeIndex; onActivated: App.setThemeIndex(index) }
                     }
                     Text { text: "" }
-                    Text { text: "indentation marks" }
-                    ComboBox { model: App.indentMarkModes; textRole: "label"; currentIndex: App.indentMarksIndex; onActivated: App.setIndentMarksIndex(index) }
-                    Text { text: "" }
-                    // a document with two views (HTML): its source raw, or its text simplified
-                    Text { text: "image previews · two-view documents (HTML) open" }
                     Flex {
                         direction: Tui.Horizontal
+                        Text { text: "wrap long lines"; Layout.preferredWidth: 21 }
+                        ComboBox { model: App.yesNo; textRole: "label"; currentIndex: App.wrapIndex; onActivated: App.setWrapIndex(index) }
+                    }
+                    Flex {
+                        direction: Tui.Horizontal
+                        Text { text: "line numbers"; Layout.preferredWidth: 21 }
+                        ComboBox { model: App.yesNo; textRole: "label"; currentIndex: App.lineNumbersIndex; onActivated: App.setLineNumbersIndex(index) }
+                    }
+                    Flex {
+                        direction: Tui.Horizontal
+                        Text { text: "indentation marks"; Layout.preferredWidth: 21 }
+                        ComboBox { model: App.indentMarkModes; textRole: "label"; currentIndex: App.indentMarksIndex; onActivated: App.setIndentMarksIndex(index) }
+                    }
+                    Flex {
+                        direction: Tui.Horizontal
+                        Text { text: "image previews"; Layout.preferredWidth: 21 }
                         ComboBox { model: App.yesNo; textRole: "label"; currentIndex: App.imagesIndex; onActivated: App.setImagesIndex(index) }
-                        Text { text: "  " }
+                    }
+                    // a document with two views (HTML): its source raw, or its text simplified
+                    Flex {
+                        direction: Tui.Horizontal
+                        Text { text: "two-view documents"; Layout.preferredWidth: 21; toolTipText: "how a document with two views (HTML) opens: asked each time, raw (its source, to edit) or simplified (its text)" }
                         ComboBox { model: App.openAsChoices; textRole: "label"; currentIndex: App.openAsIndex; onActivated: App.setOpenAsIndex(index) }
                     }
                     Text { text: "" }
-                    // the theme is the terminal's and the agents' shells' (terminal.go): their text, background
-                    // and cursor; a program's own 16 colours stay its own
-                    Text { text: "the terminal: from · size · length · theme (text and background)"; toolTipText: "The terminal's and the agents' shells: their text, background and cursor. A program's own 16 colours (ls's, a prompt's) stay its own." }
                     Flex {
                         direction: Tui.Horizontal
+                        Text { text: "terminal opens from"; Layout.preferredWidth: 21 }
                         ComboBox { model: App.terminalEdges; textRole: "label"; currentIndex: App.terminalEdgeIndex; onActivated: App.setTerminalEdge(index) }
-                        Text { text: "  " }
+                    }
+                    Flex {
+                        direction: Tui.Horizontal
+                        Text { text: "terminal size"; Layout.preferredWidth: 21 }
                         ComboBox { model: App.terminalSizes; textRole: "label"; currentIndex: App.terminalSizeIndex; onActivated: App.setTerminalSize(index) }
-                        Text { text: "  " }
+                    }
+                    Flex {
+                        direction: Tui.Horizontal
+                        Text { text: "terminal length"; Layout.preferredWidth: 21 }
                         ComboBox { model: App.terminalLengths; textRole: "label"; currentIndex: App.terminalLengthIndex; onActivated: App.setTerminalLength(index) }
-                        Text { text: "  " }
+                    }
+                    // the theme is the terminal's and the agents' shells' (terminal.go): their text, background
+                    // and cursor; a program's own 16 colours stay its own
+                    Flex {
+                        direction: Tui.Horizontal
+                        Text { text: "terminal theme"; Layout.preferredWidth: 21; toolTipText: "The terminal's and the agents' shells: their text, background and cursor. A program's own 16 colours (ls's, a prompt's) stay its own." }
                         ComboBox { toolTipText: "The terminal's and the agents' shells: their text, background and cursor. A program's own 16 colours (ls's, a prompt's) stay its own."; model: App.terminalThemes; textRole: "label"; currentIndex: App.terminalThemeIndex; onActivated: App.setTerminalTheme(index) }
                     }
                 }
@@ -79,46 +103,68 @@ Dialog {
                 Flex {
                     direction: Tui.Vertical
                     Layout.fillWidth: true
-                    Text { text: "hide the menu bar (F10) · show the status line" }
                     Flex {
                         direction: Tui.Horizontal
+                        Text { text: "hide the menu bar"; Layout.preferredWidth: 21; toolTipText: "F10 shows it while hidden" }
                         ComboBox { model: App.yesNo; textRole: "label"; currentIndex: App.menuHiddenIndex; onActivated: App.setMenuHiddenIndex(index) }
-                        Text { text: "  " }
+                    }
+                    Flex {
+                        direction: Tui.Horizontal
+                        Text { text: "show the status line"; Layout.preferredWidth: 21 }
                         ComboBox { model: App.yesNo; textRole: "label"; currentIndex: App.statusShownIndex; onActivated: App.setStatusShownIndex(index) }
                     }
                     Text { text: "" }
-                    Text { text: "the explorer opens from" }
-                    ComboBox { model: App.edges; textRole: "label"; currentIndex: App.explorerEdgeIndex; onActivated: App.setExplorerEdge(index) }
-                    Text { text: "" }
-                    Text { text: "the relations · the todos open from" }
                     Flex {
                         direction: Tui.Horizontal
+                        Text { text: "explorer opens from"; Layout.preferredWidth: 21 }
+                        ComboBox { model: App.edges; textRole: "label"; currentIndex: App.explorerEdgeIndex; onActivated: App.setExplorerEdge(index) }
+                    }
+                    Flex {
+                        direction: Tui.Horizontal
+                        Text { text: "relations open from"; Layout.preferredWidth: 21 }
                         ComboBox { model: App.edges; textRole: "label"; currentIndex: App.relationsEdgeIndex; onActivated: App.setRelationsEdge(index) }
-                        Text { text: "  " }
+                    }
+                    Flex {
+                        direction: Tui.Horizontal
+                        Text { text: "todos open from"; Layout.preferredWidth: 21 }
                         ComboBox { model: App.edges; textRole: "label"; currentIndex: App.todosEdgeIndex; onActivated: App.setTodosEdge(index) }
                     }
                     Text { text: "" }
-                    Text { text: "the agent: from · size · length" }
                     Flex {
                         direction: Tui.Horizontal
+                        Text { text: "agent opens from"; Layout.preferredWidth: 21 }
                         ComboBox { model: App.agentEdges; textRole: "label"; currentIndex: App.agentEdgeIndex; onActivated: App.setAgentEdge(index) }
-                        Text { text: "  " }
+                    }
+                    Flex {
+                        direction: Tui.Horizontal
+                        Text { text: "agent size"; Layout.preferredWidth: 21 }
                         ComboBox { model: App.agentSizes; textRole: "label"; currentIndex: App.agentSizeIndex; onActivated: App.setAgentSize(index) }
-                        Text { text: "  " }
+                    }
+                    Flex {
+                        direction: Tui.Horizontal
+                        Text { text: "agent length"; Layout.preferredWidth: 21 }
                         ComboBox { model: App.agentLengths; textRole: "label"; currentIndex: App.agentLengthIndex; onActivated: App.setAgentLength(index) }
                     }
                     Text { text: "" }
-                    Text { text: "notifications in the" }
-                    ComboBox { model: App.corners; textRole: "label"; currentIndex: App.toastCornerIndex; onActivated: App.setToastCorner(index) }
-                    Text { text: "" }
-                    Text { text: "a notification stays" }
-                    ComboBox { model: App.toastSeconds; textRole: "label"; currentIndex: App.toastSecondsIndex; onActivated: App.setToastSeconds(index) }
-                    Text { text: "" }
-                    Text { text: "at startup: About · look for updates" }
                     Flex {
                         direction: Tui.Horizontal
+                        Text { text: "notifications in the"; Layout.preferredWidth: 21 }
+                        ComboBox { model: App.corners; textRole: "label"; currentIndex: App.toastCornerIndex; onActivated: App.setToastCorner(index) }
+                    }
+                    Flex {
+                        direction: Tui.Horizontal
+                        Text { text: "a notification stays"; Layout.preferredWidth: 21 }
+                        ComboBox { model: App.toastSeconds; textRole: "label"; currentIndex: App.toastSecondsIndex; onActivated: App.setToastSeconds(index) }
+                    }
+                    Text { text: "" }
+                    Flex {
+                        direction: Tui.Horizontal
+                        Text { text: "About at startup"; Layout.preferredWidth: 21 }
                         ComboBox { model: App.yesNo; textRole: "label"; currentIndex: App.aboutAtStartIndex; onActivated: App.setAboutAtStartIndex(index) }
-                        Text { text: "  " }
+                    }
+                    Flex {
+                        direction: Tui.Horizontal
+                        Text { text: "look for updates"; Layout.preferredWidth: 21 }
                         ComboBox { model: App.yesNo; textRole: "label"; currentIndex: App.updateCheckIndex; onActivated: App.setUpdateCheckIndex(index) }
                     }
                 }

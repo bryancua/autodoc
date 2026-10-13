@@ -33,17 +33,7 @@ func TestTheRenderedViewFollowsTheFilesKind(t *testing.T) {
 	mode := func() guiwidget.EditorMode {
 		return onLoop(r, func() guiwidget.EditorMode { return r.h.editor.(*guiwidget.Editor).Mode() })
 	}
-	// Keys reach the gui Editor after r.keys returns: it draws natively, so the cells do not
-	// change, and the screen gives no sign. ctrlT is a barrier: Ctrl+T, then l, which moves the
-	// cursor one column; the cursor moving means Ctrl+T, sent first, was handled.
-	ctrlT := func() {
-		col := onLoop(r, func() int { _, c := r.h.core.Line(); return c })
-		r.keys(t, tuicore.KeyEvent{Kind: tuicore.KeyPress, Code: 't', Mods: tuicore.ModCtrl},
-			tuicore.KeyEvent{Kind: tuicore.KeyPress, Code: 'l', Text: "l"})
-		r.s.WaitFor(t, "Ctrl+T handled", func(string) bool {
-			return onLoop(r, func() int { _, c := r.h.core.Line(); return c }) != col
-		})
-	}
+	ctrlT := func() { pageCtrlT(t, r) }
 
 	onLoop(r, func() bool { r.h.openPath("a.md"); return true })
 	r.waitFile(t, "a.md")
@@ -90,6 +80,68 @@ func TestTheRenderedViewFollowsTheFilesKind(t *testing.T) {
 	if m := mode(); m != guiwidget.Raw {
 		t.Fatalf("Ctrl+T on a rendered note gives %v, want Raw", m)
 	}
+}
+
+// pageCtrlT is Ctrl+T on the page. Keys reach the gui Editor after r.keys returns: it draws
+// natively, so the cells do not change, and the screen gives no sign. It is a barrier: Ctrl+T,
+// then l, which moves the cursor one column; the cursor moving means Ctrl+T, sent first, was
+// handled.
+func pageCtrlT(t *testing.T, r *running) {
+	t.Helper()
+	col := onLoop(r, func() int { _, c := r.h.core.Line(); return c })
+	r.keys(t, tuicore.KeyEvent{Kind: tuicore.KeyPress, Code: 't', Mods: tuicore.ModCtrl},
+		tuicore.KeyEvent{Kind: tuicore.KeyPress, Code: 'l', Text: "l"})
+	r.s.WaitFor(t, "Ctrl+T handled", func(string) bool {
+		return onLoop(r, func() int { _, c := r.h.core.Line(); return c }) != col
+	})
+}
+
+// Ctrl+T is the terminal's with the keyboard in it, toggling its mode, and never reaches the
+// page's Rendered view; with the keyboard on the page it is the page's, and the terminal, hidden,
+// keeps its mode: Esc, shown again, is still its program's (cat -v shows the 0x1b as ^[).
+func TestCtrlTIsTheTerminalsInItAndThePagesOnThePage(t *testing.T) {
+	t.Setenv("SHELL", "/bin/sh")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PS1", "$ ")
+	d := startDaemonWith(t, "", map[string][]string{"kb": {"a.md", "# Alpha\n\nsome text\n"}}, daemonOpts{})
+	r := runTUI(t, NewSession(d.sock, nil), Options{ProgramOptions: []tuidecl.ProgramOption{tuidecl.WithStyle(guidecl.Native())}})
+	r.s.WaitForText(t, "connected — autodoc v-test")
+	r.s.WaitFor(t, "the notes listed", func(string) bool { return len(r.listed()) > 0 })
+	mode := func() guiwidget.EditorMode {
+		return onLoop(r, func() guiwidget.EditorMode { return r.h.editor.(*guiwidget.Editor).Mode() })
+	}
+	onLoop(r, func() bool { r.h.openPath("a.md"); return true })
+	r.waitFile(t, "a.md")
+	if m := mode(); m != guiwidget.Rendered {
+		t.Fatalf("a note as the window opens: %v, want Rendered", m)
+	}
+
+	onLoop(r, func() bool { r.h.terminals.toggleTerminal(); return true })
+	r.s.WaitFor(t, "the terminal's keyboard", func(string) bool { return r.focused("terminalView") })
+	r.keys(t, decltest.Type("cat -v\r")...)
+	// Normal mode and back: b, between, reaches no program; Esc after is cat's
+	r.keys(t, tuicore.KeyEvent{Kind: tuicore.KeyPress, Code: 't', Mods: tuicore.ModCtrl}, key('b'),
+		tuicore.KeyEvent{Kind: tuicore.KeyPress, Code: 't', Mods: tuicore.ModCtrl}, esc())
+	r.keys(t, decltest.Type("panel\r")...)
+	r.s.WaitForText(t, "^[panel")
+	if sc := r.s.String(); strings.Contains(sc, "b^[panel") || strings.Contains(sc, "^T") {
+		t.Fatalf("Normal mode's b, or Ctrl+T itself, reached the program:\n%s", sc)
+	}
+	if m := mode(); m != guiwidget.Rendered {
+		t.Fatalf("Ctrl+T in the terminal reached the page: %v, want Rendered", m)
+	}
+
+	onLoop(r, func() bool { r.h.terminals.toggleTerminal(); return true })
+	r.s.WaitFor(t, "the page's keyboard", func(string) bool { return r.focused("editor") })
+	pageCtrlT(t, r)
+	if m := mode(); m != guiwidget.Raw {
+		t.Fatalf("Ctrl+T on the page gives %v, want Raw", m)
+	}
+	onLoop(r, func() bool { r.h.terminals.toggleTerminal(); return true })
+	r.s.WaitFor(t, "the terminal's keyboard", func(string) bool { return r.focused("terminalView") })
+	r.keys(t, esc())
+	r.keys(t, decltest.Type("page\r")...)
+	r.s.WaitForText(t, "^[page")
 }
 
 // The search's preview has a Rendered view for a Markdown hit, as the editor does: a note's

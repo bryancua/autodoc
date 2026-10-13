@@ -167,8 +167,8 @@ func (t *terminals) PreferencesChanged() {
 // while hidden. + adds another; a tab's menu goes to another tab, adds one, or closes it. Opening
 // it gives the keyboard to its shell; hiding it gives the keyboard back to the pane that had it,
 // and hiding it while another pane has the keyboard moves nothing. Its keys are golib's
-// Terminal's: everything goes to the shell, and Ctrl+\ Ctrl+n (or Esc in the Vim editor mode,
-// outside full-screen programs) leaves for Normal mode over its history.
+// Terminal's: everything goes to the shell, Esc included, and Ctrl+T (main.qml's modeKey) or
+// Ctrl+\ Ctrl+n leaves for Normal mode over its history; Ctrl+T goes back.
 
 // The terminal's preference: where it opens. Its sizes are the panels' one way (panelsize.go), and
 // its defaults and bounds are its spec's (panels.go).
@@ -373,7 +373,7 @@ func (t *terminals) newShell() {
 		root = ws.root
 	}
 	var id widget.TerminalTabID
-	id, err = panel.Add(shellLabel(panel), TerminalConfig{Dir: termDir(root), VimKeys: t.c.Prefs().keymap == "vim",
+	id, err = panel.Add(shellLabel(panel), TerminalConfig{Dir: termDir(root),
 		Exited: func(code int) { t.shellExited(id, code) }})
 	if err != nil {
 		t.c.Notify("the terminal could not add a shell: " + err.Error())
