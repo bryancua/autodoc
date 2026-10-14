@@ -550,3 +550,38 @@ func TestALayeredChartEmbedIsDrawnAsAStill(t *testing.T) {
 		t.Errorf("the chart painted %v: want its bars and its dashed rule", rc.Ops())
 	}
 }
+
+// A chart with a subtitle and shaped points, as an ADR's boundary chart has, is drawn by golib
+// (gui v0.1.41), not answered with the notice.
+func TestASubtitledShapedChartEmbedIsDrawn(t *testing.T) {
+	spec := `{"title":{"text":"The window is half-open","subtitle":"min in, before out"},"width":300,"height":80,
+		"data":{"values":[{"case":"first instant","d":"2019-01-01","in":"yes"},{"case":"after","d":"2020-01-01","in":"no"}]},
+		"mark":{"type":"point","filled":true,"size":220},
+		"encoding":{"x":{"field":"d","type":"temporal"},"y":{"field":"in","type":"nominal","sort":["yes","no"]},
+			"color":{"field":"in","type":"nominal","scale":{"domain":["yes","no"],"range":["#2e9e6a","#d64545"]},"legend":null},
+			"shape":{"field":"case","type":"nominal"}}}`
+	notes, _ := embedNote(t, map[string]string{"note/window.chart.json": spec})
+	r := noteRenderer(notes)(NoteRendererSpec{})
+	lines := []string{"![Window](window.chart.json)"}
+	host := &realHost{ready: make(chan struct{}, 1)}
+	_, bl := layOut(r, lines, 0, false, host)
+	select {
+	case <-host.ready:
+		_, bl = layOut(r, lines, 0, false, host)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the chain never called ready")
+	}
+	switch p := bl.Picture.(type) {
+	case nil:
+		t.Fatalf("no picture: %#v", bl)
+	case noticeView:
+		t.Fatal("the chart was answered with the notice: golib declined it")
+	case laidBlock:
+		t.Fatalf("the chart was drawn as its source: %q", visible(p.bl))
+	}
+	rc := gui.NewRecordingCanvas(gui.Size{W: 600, H: bl.Height}, gui.Size{W: 8, H: 16})
+	bl.Picture.Paint(rc)
+	if !slices.Contains(rc.Ops(), "DrawText") || !slices.Contains(rc.Ops(), "FillPath") {
+		t.Errorf("the chart painted %v: want its symbols and labels", rc.Ops())
+	}
+}
