@@ -456,12 +456,14 @@ func (h *realHost) Diagram(d guiwidget.Diagrammer, _ guiwidget.Block, req guiwid
 
 // End to end, with golib's own chain: a chart embed is drawn as a chart, laid out by
 // gui/vegalite. It is Pending first, then, once laid, a picture that paints its labels; a spec
-// outside golib's subset falls back to its JSON as code.
+// outside golib's subset is a notice of a few lines, not its JSON; a spec that is not JSON stays
+// code, to be fixed.
 func TestAChartEmbedIsDrawnByGolib(t *testing.T) {
 	spec := `{"data":{"values":[{"a":"apples","b":3},{"a":"pears","b":5}]},"mark":"bar","encoding":{"x":{"field":"a","type":"nominal"},"y":{"field":"b","type":"quantitative"}}}`
-	notes, _ := embedNote(t, map[string]string{"note/fruit.chart.json": spec, "note/other.chart.json": `{"data":{"values":[]},"mark":"bar","transform":[]}`})
-	r := notes.Renderer(guiwidget.Diagrams(nil))(NoteRendererSpec{})
-	lines := []string{"![Fruit](fruit.chart.json)", "", "![Other](other.chart.json)"}
+	notes, _ := embedNote(t, map[string]string{"note/fruit.chart.json": spec, "note/other.chart.json": `{"data":{"values":[]},"mark":"bar","transform":[]}`,
+		"note/broken.chart.json": `{"mark": "bar",`})
+	r := noteRenderer(notes)(NoteRendererSpec{}) // the renderer GUIStyle installs
+	lines := []string{"![Fruit](fruit.chart.json)", "", "![Other](other.chart.json)", "", "![Broken](broken.chart.json)"}
 	draw := func(ln int) guiwidget.BlockLayout {
 		host := &realHost{ready: make(chan struct{}, 1)}
 		_, bl := layOut(r, lines, ln, false, host)
@@ -486,8 +488,31 @@ func TestAChartEmbedIsDrawnByGolib(t *testing.T) {
 		t.Errorf("the chart painted %v: want its bars and labels", rc.Ops())
 	}
 	bl = draw(2)
-	if code, ok := bl.Picture.(laidBlock); !ok || !strings.Contains(visible(code.bl), `"transform"`) {
-		t.Errorf("a chart outside the subset is not its spec as code: %#v", bl)
+	if n, ok := bl.Picture.(noticeView); !ok || n.text != chartNoticeText {
+		t.Fatalf("a chart outside the subset is not the notice: %#v", bl)
+	}
+	if lh := max(embedTheme.Prose.Size, 10) * 1.4; bl.Height <= lh || bl.Height > 5*lh {
+		t.Errorf("the notice is %v high, want a few lines (a line is %v)", bl.Height, lh)
+	}
+	rc = gui.NewRecordingCanvas(gui.Size{W: 600, H: bl.Height}, gui.Size{W: 8, H: 16})
+	bl.Picture.Paint(rc)
+	if !slices.Contains(rc.Ops(), "DrawText") {
+		t.Errorf("the notice painted %v: want its text", rc.Ops())
+	}
+	bl = draw(4)
+	if code, ok := bl.Picture.(laidBlock); !ok || !strings.Contains(visible(code.bl), `"mark"`) {
+		t.Errorf("a chart that is not JSON is not its source as code: %#v", bl)
+	}
+}
+
+// The notice answers only a chart: whatever else golib declines (a Mermaid diagram type it does not
+// draw) stays declined, drawn as its source.
+func TestTheChartNoticeAnswersOnlyACharts(t *testing.T) {
+	for lang, want := range map[string]guiwidget.DiagramState{"vega-lite": guiwidget.Ready, "vegalite": guiwidget.Ready, "mermaid": guiwidget.Declined} {
+		a := chartNotice{}.Diagram(context.Background(), guiwidget.DiagramRequest{Lang: lang, Width: 400, Scale: 1}, func() {})
+		if a.State != want {
+			t.Errorf("%s: %v, want %v", lang, a.State, want)
+		}
 	}
 }
 
