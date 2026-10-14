@@ -490,3 +490,38 @@ func TestAChartEmbedIsDrawnByGolib(t *testing.T) {
 		t.Errorf("a chart outside the subset is not its spec as code: %#v", bl)
 	}
 }
+
+// A layered chart embed, as xmd's own design document has (bars, a rule a slider places, bars
+// faded by a legend selection), is drawn by golib as the page first shows it, not as its JSON.
+func TestALayeredChartEmbedIsDrawnAsAStill(t *testing.T) {
+	spec := `{"width":"container","height":120,
+		"params":[{"name":"budget","value":500,"bind":{"input":"range","min":0,"max":5500}}],
+		"data":{"values":[{"part":"main.js","kb":62,"loads":"Always"},{"part":"Mermaid","kb":5165,"loads":"First diagram"}]},
+		"layer":[
+			{"mark":"bar","encoding":{"y":{"field":"part","type":"nominal","sort":"-x"},"x":{"field":"kb","type":"quantitative"},
+				"color":{"field":"loads","type":"nominal"},"opacity":{"condition":{"param":"pick","value":1},"value":0.25}},
+			 "params":[{"name":"pick","select":{"type":"point","fields":["loads"]},"bind":"legend"}]},
+			{"mark":{"type":"rule","strokeDash":[4,3]},"encoding":{"x":{"datum":{"expr":"budget"},"type":"quantitative"}}}]}`
+	notes, _ := embedNote(t, map[string]string{"note/bundle-size.chart.json": spec})
+	r := notes.Renderer(guiwidget.Diagrams(nil))(NoteRendererSpec{})
+	lines := []string{"![Bundle size by part](bundle-size.chart.json)"}
+	host := &realHost{ready: make(chan struct{}, 1)}
+	_, bl := layOut(r, lines, 0, false, host)
+	select {
+	case <-host.ready:
+		_, bl = layOut(r, lines, 0, false, host)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the chain never called ready")
+	}
+	if bl.Picture == nil {
+		t.Fatalf("no picture: %#v", bl)
+	}
+	if code, isCode := bl.Picture.(laidBlock); isCode {
+		t.Fatalf("the layered chart was drawn as its JSON: %q", visible(code.bl))
+	}
+	rc := gui.NewRecordingCanvas(gui.Size{W: 600, H: bl.Height}, gui.Size{W: 8, H: 16})
+	bl.Picture.Paint(rc)
+	if !slices.Contains(rc.Ops(), "StrokePath") || !slices.Contains(rc.Ops(), "FillPath") {
+		t.Errorf("the chart painted %v: want its bars and its dashed rule", rc.Ops())
+	}
+}
