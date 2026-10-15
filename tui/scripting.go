@@ -2,10 +2,13 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
 	"strings"
+
+	tuidecl "github.com/yongjohnlee80/golib/tui/decl"
 
 	"github.com/yongjohnlee80/autodoc/script"
 	lua "github.com/yuin/gopher-lua"
@@ -18,6 +21,7 @@ import (
 //	                                 raises. err is "unknown: <id>", the entry's own, or a refusal:
 //	                                 a plugin's command (plugin.*) is never Lua's to run
 //	autodoc.current_workspace()      the workspace in use; nil before one is entered
+//	:lua-reload                      every script loaded again on a new engine (Host.reloadScripts)
 //	autodoc.<domain>.<verb>(…, cb)   each verb the daemon offers scripts, its params in order:
 //	                                 autodoc.search.query("kb", "words", {limit = 5}, cb)
 //
@@ -44,8 +48,16 @@ type scripting struct {
 	// script holding one (local s = autodoc.search) holds the new functions
 	domains map[string]*lua.LTable
 	seq     uint64 // the contracts' fetches: only the latest one's answer is kept
-	// run runs a catalog entry for autodoc.run (Host.runFromLua)
-	run func(id string, args []string) error
+	// run runs a catalog entry for autodoc.run (Host.runFromLua); reload is :lua-reload's
+	// (Host.reloadScripts)
+	run     func(id string, args []string) error
+	reload  func() error
+	install func(url string) error // :lua-install's (Host.installPackage)
+	// line runs a key's or a menu row's command line (Host: core.RunCommand); ui is the running
+	// engine's keys and rows, menuRows the Plugins menu's model of them (luakeys.go)
+	line     func(string) error
+	ui       luaUI
+	menuRows *tuidecl.ListModel
 	// host is the clipboard and the agents for the host functions (luahost.go); pick is
 	// autodoc.ui.pick's picker, pickCB the callback of the one open
 	host   luaHost
@@ -53,9 +65,31 @@ type scripting struct {
 	pickCB *lua.LFunction
 }
 
+// Catalog is :lua-reload (catalog.go).
+func (s *scripting) Catalog() []Entry {
+	return []Entry{{ID: "scripts.reload", Title: "reload the Lua scripts", Verb: "lua-reload",
+		Help: "load every Lua script again: AutoDoc's, then the config folder's lua/",
+		Run: func(Invocation) error {
+			if s.reload == nil {
+				return errors.New("lua-reload: the scripts have not started")
+			}
+			return s.reload()
+		}},
+		{ID: "scripts.install", Title: "install a Lua package", Verb: "lua-install", Args: "<git-url>",
+			Help: "clone a Lua package into the config folder's lua/, once you agree",
+			Run: func(inv Invocation) error {
+				if s.install == nil {
+					return errors.New("lua-install: the scripts have not started")
+				}
+				return s.install(inv.Line)
+			}},
+	}
+}
+
 // luaVerb is what a script's call needs of a contract.
 type luaVerb struct {
 	verb, audience string
+	effect         string // read, write or settings; "" from a daemon older than effects
 	params         []luaParam
 	required       int
 }
@@ -77,15 +111,44 @@ func (h *Host) luaFeature() *scripting {
 func (*scripting) Name() string { return "scripting" }
 func (s *scripting) State() map[string]any {
 	return map[string]any{"App.luaPickRows": s.luaPicker().list.Model(), "App.luaPickField": "",
+		"App.luaKeysText": s.luaKeysText(), "App.luaMenus": s.luaMenuRows(),
 		"App.luaPickStatus": "items", "App.luaPickTitle": "choose",
 		"App.luaPickPreviewTitle": "", "App.luaPickPreviewText": "", "App.luaPickPreviewAt": 0}
 }
-func (*scripting) Commands() map[string]Command { return nil }
+func (s *scripting) Commands() map[string]Command {
+	return map[string]Command{
+		"App.luaKey":  oneString("a Lua key's letter", s.luaKey),
+		"App.luaMenu": oneString("a Lua menu row", s.luaMenu),
+	}
+}
+
+// Keys is SPC u, the Lua keys' card (views/LuaKeys.qml): its letters are the scripts', bound as
+// they load, so it is not a key card of the catalog's.
+func (*scripting) Keys() []Key {
+	return []Key{{Card: leader, Seq: "u", Show: "u", Does: "your Lua keys", Run: "luaKeys.open()", Group: groupWindow}}
+}
+
+// Cards is none: SPC u's card is the scripts' own (views/LuaKeys.qml).
+func (*scripting) Cards() []Card { return nil }
 
 // bind gives the engine autodoc.call and autodoc.run, which runs through run; the namespaces follow
 // once the daemon says its contracts.
 func (s *scripting) bind(eng *script.Engine, run func(id string, args []string) error) {
 	s.eng, s.run = eng, run
+	// a gated script's calls need the capability the verb's effect asks (ADR 1792004705 §4.2)
+	eng.SetGate("call", func(_ string, L *lua.LState) string { return s.capabilityOf(L.CheckString(1)) })
+	eng.SetGate("run", func(string, *lua.LState) string { return "commands" })
+	// keys and rows run any command line: commands, as run (luakeys.go)
+	s.mapUI(eng)
+	// map and menu always register: a gated script's key or row checks commands when it runs, so a
+	// grant given after the script loaded works at once (luakeys.go)
+	eng.SetGate("map", func(string, *lua.LState) string { return "" })
+	eng.SetGate("menu", func(string, *lua.LState) string { return "" })
+	// a new engine (a reload): the namespaces are made again in it, from the contracts known
+	s.domains = map[string]*lua.LTable{}
+	if s.verbs != nil {
+		defer s.define(s.verbs)
+	}
 	eng.SetFunction("call", s.luaCall)
 	eng.SetFunction("run", s.luaRun)
 	eng.SetFunction("current_workspace", func(L *lua.LState) int {
@@ -134,7 +197,7 @@ func decodeVerbs(res any) map[string]luaVerb {
 	out := map[string]luaVerb{}
 	for _, raw := range asList(asMap(res)["verbs"]) {
 		m := asMap(raw)
-		v := luaVerb{verb: str(m, "verb"), audience: str(m, "audience")}
+		v := luaVerb{verb: str(m, "verb"), audience: str(m, "audience"), effect: str(m, "effect")}
 		ps := asList(m["params"])
 		v.required = len(ps)
 		for i, rp := range ps {
@@ -187,6 +250,7 @@ func (s *scripting) define(verbs map[string]luaVerb) {
 			}
 			t = L.NewTable()
 			s.domains[domain] = t
+			s.eng.SetDomainGate(domain, func(name string, _ *lua.LState) string { return s.capabilityOf(domain + "." + name) })
 		}
 		global.RawSetString(domain, t)
 		for _, v := range byDomain[domain] {
@@ -194,6 +258,22 @@ func (s *scripting) define(verbs map[string]luaVerb) {
 			t.RawSetString(name, L.NewFunction(s.namespaced(v)))
 		}
 	}
+}
+
+// capabilityOf is the capability a gated script needs to call verb: its effect's. A verb whose
+// effect is not known (an older daemon, no contracts yet, a verb it does not list) is refused
+// outright, script.Unclassified: mapped to any one capability, a grant of it could cover what it
+// does not (an old daemon's doc.remove under settings).
+func (s *scripting) capabilityOf(verb string) string {
+	switch s.verbs[verb].effect {
+	case "read":
+		return "workspace.read"
+	case "write":
+		return "workspace.write"
+	case "settings":
+		return "settings"
+	}
+	return script.Unclassified
 }
 
 func clearTable(t *lua.LTable) {
@@ -376,7 +456,7 @@ func (s *scripting) answer(verb string, cb *lua.LFunction, a luaAnswer) {
 		}
 		return
 	}
-	if err := s.eng.Callback(verb+"'s callback", cb, res, errv); err != nil {
+	if err := s.eng.Callback(verb+"'s callback", cb, res, errv); err != nil && !errors.Is(err, script.ErrStale) {
 		s.c.Notify("a Lua callback failed: " + err.Error())
 	}
 }

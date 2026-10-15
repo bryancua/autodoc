@@ -39,7 +39,8 @@ autodoc.command{
 }
 ```
 
-Save that as `~/.config/autodoc/lua/lines.lua`, restart AutoDoc, and type `:lines` and Enter.
+Save that as `~/.config/autodoc/lua/lines.lua`, run `:lua-reload` (or restart AutoDoc), and type
+`:lines` and Enter.
 
 **The command line.** **:** opens it in Vim's Normal and Visual modes, **Ctrl+;** in any mode
 (the Text mode's way in), and **Search › Command line…** where a terminal cannot send Ctrl+;.
@@ -58,8 +59,59 @@ folder in file-name order.
 - **Every file shares one Lua state.** A global one file sets, a later file sees. Keep helpers
   `local` unless you mean to share them.
 
-**Reloading is a restart.** AutoDoc reads the folder once, when it starts. After you edit a script,
-quit (`:q`) and start AutoDoc again.
+**Reloading.** AutoDoc reads the folder when it starts, and again on `:lua-reload`:
+
+- **`:lua-reload` loads every script again**, AutoDoc's and yours, on a fresh Lua state. An edited
+  file's commands are the new ones, a removed file's are gone, and a name your command had taken
+  goes back to whatever had it before. Globals a script set are gone too.
+- **Saving a script of the folder in AutoDoc reloads at once**: open
+  `~/.config/autodoc/lua/lines.lua` (File › Open any file), edit it, and `:w`.
+- **A daemon answer still on its way** to a callback of the old scripts is dropped when it comes.
+- A script cannot reload from inside itself: `autodoc.run("scripts.reload")` answers `false` and
+  why.
+
+## Packages: scripts to share
+
+A **package** is a folder of the `lua/` folder: `~/.config/autodoc/lua/<name>/`, holding `init.lua`
+and a `package.toml`.
+
+```toml
+name = "wordcount"            # the folder's name
+version = "1.0.0"
+description = "word counts for the page"
+requires = ["workspace.read"] # what it must be allowed to do
+```
+
+- **A package is held to what you allow.** It asks, once, for what its `requires` (and any
+  `autodoc.requires{…}` in its code) names: reading the workspace, writing it, the clipboard, the
+  agents, AutoDoc's settings, or running commands. Until you allow one, its calls of that kind
+  answer `nil` and `needs <capability>: not granted`. **Not now** asks again at the next start.
+- **Its globals are its own,** and so are its copies of `string`, `table` and `math`: it changes
+  nothing another script sees.
+- **`require("lib")` reads the package's own `lib.lua`** (or `lib/init.lua`), once; a name outside
+  the folder is refused.
+- **Your own `lua/*.lua` files are not packages:** they are yours, and are never asked about.
+- **`:lua-install <git-url>`** clones a package whose repository has `package.toml` at its top. It
+  asks before anything goes into `lua/`, naming the package, its version, its source and commit, and
+  what it requires; **Install** puts it there and reloads the scripts. To remove one, delete its
+  folder and run `:lua-reload`.
+
+[The reference](reference.md#packages-and-capabilities) lists the capabilities a package can ask
+for, and what each allows.
+
+## Agents and the page
+
+The agents AutoDoc starts (SPC a) can work on the page you are writing, its unsaved text included,
+through `autodoc --editor` (the guide AutoDoc gives each agent lists the verbs). They are held as a
+package is:
+
+- **Each agent asks once** for what it does: reading the page (`editor.read`), editing it
+  (`editor.write`) or running commands (`commands`). Until you allow it, its calls are refused and
+  it is told why.
+- **Each edit an agent makes is one undo step.** An edit of a page you changed since the agent read
+  it is refused, not misplaced.
+- **An agent can offer you a Lua command:** a card shows its source, and only **Add it** writes it
+  into `lua/` and loads it. A file already there is never replaced.
 
 ## The sandbox
 

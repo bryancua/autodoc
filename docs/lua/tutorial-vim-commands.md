@@ -1,7 +1,7 @@
 # Tutorial: your own Vim commands
 
 This tutorial builds `:` commands in Lua, one step at a time. Each step is a whole script: paste it
-into a file in `~/.config/autodoc/lua/`, restart AutoDoc, and run it. By the end you have a word
+into a file in `~/.config/autodoc/lua/`, run `:lua-reload`, and run it. By the end you have a word
 count, a table of contents, a command that links to the workspace's documents, and your own
 version of a built-in.
 
@@ -27,7 +27,7 @@ autodoc.command{
 }
 ```
 
-Save it as `~/.config/autodoc/lua/hello.lua`, restart AutoDoc, then type `:hello` and Enter. A
+Save it as `~/.config/autodoc/lua/hello.lua`, run `:lua-reload`, then type `:hello` and Enter. A
 notification says "Hello from Lua".
 
 - **`autodoc.command{…}`** registers a command. It runs once, when the file loads.
@@ -53,7 +53,7 @@ autodoc.command{
 }
 ```
 
-Replace `hello.lua` with this, restart, and try `:hello`, `:hello Ada` and `:hi Ada Lovelace`.
+Replace `hello.lua` with this, `:lua-reload`, and try `:hello`, `:hello Ada` and `:hi Ada Lovelace`.
 
 - **`aliases`** are other names for the command: `:hi` runs it too.
 - **`args`** and **`help`** are what Tab shows. Type `:he` and Tab: the line completes to
@@ -316,6 +316,7 @@ autodoc.command{
     if line == "" then error("link <term>", 0) end
     local workspace = autodoc.current_workspace()
     if not workspace then error("enter a workspace first", 0) end
+    local rev, l, c = ed:revision(), ed:cursor() -- the page as run found it
     autodoc.search.query(workspace, line, {limit = 1}, function(res, err)
       if err then
         autodoc.notify("link: the search failed: " .. err)
@@ -327,7 +328,11 @@ autodoc.command{
         return
       end
       local target = hit.path:gsub("%.md$", "")
-      ed:insert("[[" .. target .. "]]")
+      if ed:revision() == rev then
+        ed:insert_at(l, c, "[[" .. target .. "]]") -- the page is as it was: where run was asked
+      else
+        ed:insert("[[" .. target .. "]]") -- it changed: where the cursor is now
+      end
       autodoc.notify("link: [[" .. target .. "]]")
     end)
   end,
@@ -346,8 +351,10 @@ Put the cursor where the link should go and run `:link kestrel`.
   `"-32060 no such workspace"`. Without the check, `res` is `nil` and `res.hits` fails.
 - **The callback runs as a command does.** It has the same 2 seconds, it can use `ed`, and its
   edits are one undo step of their own.
-- **The page may have changed meanwhile.** You may have moved, or opened another document. Read
-  the cursor in the callback, as `ed:insert` does, rather than a position `run` saved.
+- **The page may have changed meanwhile.** You may have typed, or opened another document.
+  `ed:revision()` names the text: `run` keeps it, and the callback compares. The same revision is
+  the same text, so the position `run` saved still holds; another means it may not, and `:link`
+  inserts at the cursor instead.
 - **`autodoc.current_workspace()`** is the workspace in use, or `nil` before you enter one. Most
   verbs take it first.
 - **The result is Lua tables.** `res.hits` is a list; each hit has a `path`, relative to the
@@ -445,7 +452,8 @@ autodoc.command{
 - Check **SPC h** for `a Lua command did not load`. It names the file, the line, and the error:
   a syntax error, a misspelt field, a name with a space.
 - Check the folder: `~/.config/autodoc/lua/`, and the file ends in `.lua`.
-- AutoDoc reads the folder only when it starts: **restart it**.
+- AutoDoc reads the folder when it starts and on **`:lua-reload`**: run it after an edit made
+  outside AutoDoc (saving the file in AutoDoc reloads by itself).
 
 **"the script ran past 2s and was stopped".** A command, a callback or a file's loading has 2
 seconds. A loop that never ends is the usual cause, such as a `while` waiting for something that

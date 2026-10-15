@@ -9,7 +9,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	tuicore "github.com/yongjohnlee80/golib/tui"
 	"github.com/yongjohnlee80/golib/tui/widget"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -234,6 +236,88 @@ var luaDocChecks = map[string]func(t *testing.T, r *running){
 		r.mustRun(t, "tasks")
 		r.s.WaitFor(t, ":tasks went to the open task", func(string) bool { l, _ := r.cursorAt(); return l == 3 })
 	},
+	"-- stamp.lua: :stamp inserts today's date, and :stamp! the time too": func(t *testing.T, r *running) {
+		r.page("", 1, 1)
+		r.mustRun(t, "stamp")
+		if got := r.editorText(); !regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`).MatchString(got) || got != time.Now().Format("2006-01-02") && got != time.Now().Add(-time.Minute).Format("2006-01-02") {
+			t.Fatalf(":stamp inserted %q", got)
+		}
+		r.page("", 1, 1)
+		r.mustRun(t, "stamp!")
+		if got := r.editorText(); !regexp.MustCompile(`^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$`).MatchString(got) {
+			t.Fatalf(":stamp! inserted %q", got)
+		}
+	},
+	"-- tagged.lua: :tagged says the page's tags, from its frontmatter": func(t *testing.T, r *running) {
+		r.page("---\ntitle: Plan\ntags: [kestrel, notes]\n---\n# Plan", 1, 1)
+		r.mustRun(t, "tagged")
+		r.waitNotice(t, ": kestrel, notes")
+		r.page("# no frontmatter", 1, 1)
+		r.mustRefuse(t, "tagged", "has no tags")
+		r.page("---\ntags: [a\n---\n", 1, 1) // not YAML: no frontmatter, and why
+		r.mustRefuse(t, "tagged", "has no tags")
+	},
+	"-- heading.lua: :heading <name> goes to a heading of the page; Tab offers them": func(t *testing.T, r *running) {
+		r.page("# Plan\n\n## Install it\ntext\n## Use", 1, 1)
+		got := onLoop(r, func() []string {
+			c, _ := r.h.core.Commands().Lookup("heading")
+			if c.Complete == nil {
+				return nil
+			}
+			return c.Complete(widget.CompleteContext{Core: r.h.core, Name: "heading", Word: "In"})
+		})
+		if strings.Join(got, " ") != "Plan Install-it Use" {
+			t.Fatalf(":heading's complete gave %q", got)
+		}
+		r.mustRun(t, "heading Install-it")
+		r.wantCursor(t, ":heading Install-it", 3, 1)
+		r.mustRefuse(t, "heading Nope", "heading: no Nope on the page")
+	},
+	"-- lastsaved.lua: :lastsaved <path> says when a page was last saved in this run": func(t *testing.T, r *running) {
+		r.mustRun(t, "lastsaved a.md")
+		r.waitNotice(t, "lastsaved: a.md not saved yet")
+		onLoop(r, func() bool { r.h.emitLua("save", map[string]any{"path": "a.md", "workspace": "kb"}); return true })
+		r.mustRun(t, "lastsaved a.md")
+		r.s.WaitFor(t, "a time", func(string) bool {
+			return onLoop(r, func() bool {
+				for _, n := range r.h.noticeLog.items {
+					if regexp.MustCompile(`^lastsaved: a\.md \d\d:\d\d:\d\d$`).MatchString(n.text) {
+						return true
+					}
+				}
+				return false
+			})
+		})
+	},
+	"-- keys.lua: :stamp on Q, on SPC u s, and in the right-click menu": func(t *testing.T, r *running) {
+		today := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+		r.page("", 1, 1)
+		if !onLoop(r, func() bool { return r.h.core.HandleKey(tuicore.KeyEvent{Code: 'Q', Text: "Q"}) }) {
+			t.Fatal("Q was not taken")
+		}
+		if got := r.editorText(); !today.MatchString(got) {
+			t.Fatalf("Q inserted %q", got)
+		}
+		r.page("", 1, 1)
+		onLoop(r, func() bool { r.h.luaFeature().luaKey("s"); return true })
+		if got := r.editorText(); !today.MatchString(got) {
+			t.Fatalf("SPC u s inserted %q", got)
+		}
+		text := onLoop(r, func() string { return r.h.luaFeature().luaKeysText() })
+		if !strings.Contains(text, "s  today's date") {
+			t.Fatalf("SPC u's card says %q", text)
+		}
+		labels := onLoop(r, func() []string {
+			var out []string
+			for _, it := range r.h.editorMenu(r.h.core) {
+				out = append(out, it.Label)
+			}
+			return out
+		})
+		if !slices.Contains(labels, "Insert the date") {
+			t.Fatalf("the right-click menu: %q", labels)
+		}
+	},
 	"-- tail.lua: :tail <n> selects the last n characters of the cursor's line": func(t *testing.T, r *running) {
 		r.page("abc de\u0301f", 1, 1) // é as e and an accent: one column
 		r.mustRun(t, "tail 3")
@@ -277,6 +361,23 @@ var luaDocChecks = map[string]func(t *testing.T, r *running){
 		r.mustRun(t, "link kestrel")
 		r.waitNotice(t, "link: [[a]]")
 		r.wantText(t, ":link kestrel", "See [[a]] for more.")
+		// the page edited before the answer comes: the link goes to the cursor, not where run was
+		r.page("See  for more.", 1, 5)
+		r.clearNotices()
+		if err := onLoop(r, func() error {
+			if err := r.h.core.RunCommand("link kestrel"); err != nil {
+				return err
+			}
+			if _, err := r.h.core.Insert(widget.TextPos{}, ">> "); err != nil {
+				return err
+			}
+			r.h.core.SetCursor(widget.TextPos{})
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		r.waitNotice(t, "link: [[a]]")
+		r.wantText(t, ":link kestrel, the page edited meanwhile", "[[a]]>> See  for more.")
 		r.mustRun(t, "link zebrafinch")
 		r.waitNotice(t, "link: nothing matches zebrafinch")
 		r.mustRefuse(t, "link", "link <term>")

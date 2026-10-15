@@ -26,12 +26,69 @@ The language is Lua 5.1 (gopher-lua), with the base, table, string and math libr
 
 | Function | Does | Returns |
 |---|---|---|
-| `autodoc.command{name, aliases, args, help, run, id, title}` | Registers a `:` command, an entry of AutoDoc's command catalog ([what it takes](#what-a-command-takes)). Runs as the file loads. | nothing |
+| `autodoc.command{name, aliases, args, help, run, complete, id, title}` | Registers a `:` command, an entry of AutoDoc's command catalog ([what it takes](#what-a-command-takes)). Runs as the file loads. | nothing |
 | `autodoc.run(id, …)` | Runs a command of the catalog by its id, AutoDoc's or yours, with the rest as its arguments ([below](#autodocrunid-)). | `true`, or `false` and why |
 | `autodoc.notify(message)` | Shows a notification: a toast in the corner, kept in the history (SPC h). | nothing |
 | `autodoc.call(verb, params, cb)` | Calls any daemon verb by its name, with `params` a list of its params in order (`nil` or `{}` for none). `cb` is optional. | nothing; the answer goes to `cb` |
 | `autodoc.current_workspace()` | The workspace in use. | a string, or `nil` before one is entered |
+| `autodoc.document()` | The page in the editor ([below](#autodocdocument)). | a table |
+| `autodoc.map{mode, keys, command, title}` | Binds a key to a command line ([keys and menus](#keys-and-menus)). | nothing |
+| `autodoc.menu{where, title, command}` | Adds a menu row that runs a command line ([keys and menus](#keys-and-menus)). | nothing |
 | `autodoc.<domain>.<verb>(…, cb)` | Calls the daemon's `<domain>.<verb>`: its params in order, then `cb`. Made when AutoDoc connects ([the daemon's verbs](#the-daemons-verbs)). | nothing; the answer goes to `cb` |
+
+The engine's own functions, beside `command` and `notify`:
+
+<!-- autodoc:lua-globals:start -->
+<!-- generated from the script package's own tables by go generate ./tui. Do not edit. -->
+
+| Function | Returns | Notes |
+|---|---|---|
+| `autodoc.now()` | number | The time, in seconds since 1970-01-01 UTC, with a fraction: `os.time()`'s, to the millisecond. |
+| `autodoc.date(format, t)` | string, or a table | The time t (seconds, `now()` by default) written by format, as `os.date` does: `%Y-%m-%d`, `%H:%M`, …; `%c` by default. A format starting with `!` is in UTC, else local time; `"*t"` gives a table: `year`, `month`, `day`, `hour`, `min`, `sec`, `wday`, `yday`, `isdst`. |
+| `autodoc.commands()` | list of tables | Every command, in the order they were added: `{id, name, aliases, args, help, title, source}`. `name` is its `:` name, `""` for one only a key or its id runs; `source` says whose it is (`"lua"`, `"plugin"`, `"editor"`, …). A command that takes another's `:` name finds that one here, under its id and with no `name`, and runs it with `autodoc.run`. |
+| `autodoc.on(event, fn)` | nothing | Calls `fn(ed, info)` each time event happens, from now until the scripts reload. The host says which events there are ([events](#events)). A handler runs as a callback does, and its error is a notification. |
+
+<!-- autodoc:lua-globals:end -->
+
+```lua
+-- stamp.lua: :stamp inserts today's date, and :stamp! the time too
+autodoc.command{
+  name = "stamp",
+  help = "insert the date (with !, the time too)",
+  run = function(ed, args, line, cmd)
+    ed:insert(autodoc.date(cmd.bang and "%Y-%m-%d %H:%M" or "%Y-%m-%d"))
+  end,
+}
+```
+
+### `autodoc.document()`
+
+The page in the editor, as a table. It can be called anywhere, a file's top level too.
+
+| Field | What it is |
+|---|---|
+| `path` | its path in its workspace; `nil` for the untitled draft |
+| `workspace` | the workspace it is in; `nil` for the draft, or a file outside every workspace |
+| `kind` | how AutoDoc reads it: `"markdown"`, `"text"`, `"yaml"`, `"derived"` or `"registered"` (source code) |
+| `derived` | a derived document's format, `"PDF"` or `"DOCX"`: its text is read-only |
+| `frontmatter` | a Markdown page's frontmatter, as Lua values, read from the editor's text now: `{title = "Plan", tags = {"a", "b"}}`; `nil` without one |
+| `frontmatter_error` | why the frontmatter could not be read, when it is not YAML |
+
+```lua
+-- tagged.lua: :tagged says the page's tags, from its frontmatter
+autodoc.command{
+  name = "tagged",
+  help = "say the page's tags",
+  run = function(ed)
+    local doc = autodoc.document()
+    local tags = doc.frontmatter and doc.frontmatter.tags
+    if type(tags) ~= "table" or #tags == 0 then
+      error((doc.path or "the draft") .. " has no tags", 0)
+    end
+    autodoc.notify((doc.path or "the draft") .. ": " .. table.concat(tags, ", "))
+  end,
+}
+```
 
 ### `autodoc.command{…}`
 
@@ -41,6 +98,7 @@ The language is Lua 5.1 (gopher-lua), with the base, table, string and math libr
 | `run` | function | yes | `run(ed, args, line, cmd)`: what the command does. |
 | `aliases` | list of strings | no | Other names for it, under the same rules as `name`. |
 | `args` | string | no | Its arguments, as Tab shows them: `"<term>"`, `"[depth]"`. A hint only: nothing checks it. |
+| `complete` | list of strings, or function | no | What Tab offers for an argument ([below](#completing-arguments)). |
 | `help` | string | no | What it does, in one line, as Tab shows it. |
 | `id` | string | no | Its id in the command catalog, which `autodoc.run` and F1 name it by: `lua.<something>`. `lua.<name>` when left out. |
 | `title` | string | no | What F1's COMMANDS calls it. Its `help`, or its `name`, when left out. |
@@ -93,6 +151,55 @@ autodoc.command{
 by `autodoc.run`, `cmd.bang` is `false` and `cmd.name` is the command's name.
 
 **One undo.** Everything `run` edits is one undo step, `ed:run`'s commands included.
+
+### Completing arguments
+
+After the name and a space, Tab completes the word being typed from `complete`:
+
+- **A list** is the candidates: `complete = {"flowchart", "sequence"}`. AutoDoc's `:mermaid`
+  offers its diagram types this way.
+- **A function** is called as `complete(ed, word, args, cmd)` each time Tab starts on a word:
+  `word` is the word typed so far (`""` after a space), `args` the words before it, `cmd` as
+  `run`'s. It returns a list of strings. It runs as `run` does, with 2 seconds and `ed`, so it
+  can offer what is on the page.
+- **Tab keeps the candidates that start with the word**, so return them all. One is filled in
+  with a space after it; several are listed, and Tab and Shift+Tab go through them. With none,
+  Tab shows `args` and `help`.
+- **A function's error** is a notification, `<name>'s complete: <error>`, and Tab shows `args`.
+
+```lua
+-- heading.lua: :heading <name> goes to a heading of the page; Tab offers them
+local function headings(ed)
+  local out = {}
+  for n, text in ipairs(ed:lines()) do
+    local title = text:match("^#+%s+(.-)%s*$")
+    if title then out[#out + 1] = {name = (title:gsub("%s+", "-")), line = n} end
+  end
+  return out
+end
+
+autodoc.command{
+  name = "heading",
+  args = "<name>",
+  help = "go to a heading of the page",
+  complete = function(ed, word)
+    local names = {}
+    for _, h in ipairs(headings(ed)) do names[#names + 1] = h.name end
+    return names
+  end,
+  run = function(ed, args)
+    for _, h in ipairs(headings(ed)) do
+      if h.name == args[1] then
+        ed:set_cursor(h.line, 1)
+        return
+      end
+    end
+    error("heading: no " .. (args[1] or "name") .. " on the page", 0)
+  end,
+}
+```
+
+A heading's spaces become `-`, so each name is one word.
 
 ### `autodoc.run(id, …)`
 
@@ -155,6 +262,7 @@ run`.
 | `ed:replace_all(term, text, opts)` | number | Puts text in place of every match of term, as one edit, and returns how many. `opts` as `ed:find_all`'s. |
 | `ed:mode()` | string | The editor's mode: `"normal"`, `"insert"`, `"replace"`, `"visual"`, `"visual_line"` or `"visual_block"`. Without Vim's keys it is `"insert"`, or `"visual"` with a selection. |
 | `ed:read_only()` | boolean | Whether edits are refused: a PDF's or DOCX's derived text, say. |
+| `ed:revision()` | number | Names the text as it is now: every edit and every new document gives a new one, and an undo gives back the one the text had. A callback compares the revision its command read with `ed:revision()` to know whether the page changed while it waited. |
 | `ed:modified()` | boolean | Whether the text has changed since it was opened or last saved, as `:x` asks before it writes. |
 | `ed:run(line)` | nothing | Runs a command line as the prompt does, without the `:`: `"12"`, `"find TODO"`, `"table 2 3"`. Raises the command's error. |
 
@@ -188,6 +296,74 @@ them, and its jump to the first match comes just after your command ends.
 `#2`: `ed:line("3")` raises `bad argument #2 to line (number expected, got string)`. A position is
 a number; `args` are strings, so convert them with `tonumber`. A fraction is cut to a whole number.
 A text argument may be a string or a number.
+
+## Events
+
+`autodoc.on(event, fn)` calls `fn(ed, info)` each time event happens:
+
+| Event | When | `info` |
+|---|---|---|
+| `open` | a page is set up in the editor: a file opened, or the draft after a close | `{path, workspace}`; `path` is `nil` for the draft |
+| `save` | a save wrote the editor's text | `{path, workspace}` |
+| `mode` | the editor's mode changed | `{mode, previous}`, as `ed:mode()` names them |
+| `change` | the text changed, once typing pauses (300 ms): a burst of keys is one change | `{revision}`, as `ed:revision()` |
+
+- **A handler runs as a callback does:** on AutoDoc's loop, with 2 seconds, `ed` reachable and its
+  edits one undo step. Its error is a notification, `a Lua handler failed: …`; the other handlers
+  still run, and it stays.
+- **A handler's own edits do not emit `change` again,** so a `change` handler may tidy the page.
+- **`:lua-reload` drops every handler** with the scripts that set them; loading them again sets
+  them again.
+
+```lua
+-- lastsaved.lua: :lastsaved <path> says when a page was last saved in this run
+local saved = {}
+autodoc.on("save", function(ed, info)
+  saved[info.path] = autodoc.date("%H:%M:%S")
+end)
+
+autodoc.command{
+  name = "lastsaved",
+  args = "<path>",
+  help = "say when a page was last saved",
+  run = function(ed, args)
+    local p = args[1] or (autodoc.document().path or "")
+    autodoc.notify("lastsaved: " .. p .. " " .. (saved[p] or "not saved yet"))
+  end,
+}
+```
+
+## Keys and menus
+
+`autodoc.map` binds a key, and `autodoc.menu` adds a menu row. Each runs its `command` line as `:`
+does: a command's name and its arguments, `"table 2 3"`. Its error is a notification.
+
+| `autodoc.map` field | What it is |
+|---|---|
+| `mode` | `"normal"` or `"visual"`: a key of the page in Vim's Normal or Visual mode; `"leader"`: a letter of **SPC u**, your Lua keys' card |
+| `keys` | Normal and Visual: one character, `"Q"`, or a control chord, `"<C-k>"`. Leader: a letter or digit, not `q` (it closes the card) |
+| `command` | the command line it runs |
+| `title` | how SPC u's card names a leader key; the command line when left out |
+
+- **A page key runs only with nothing pending:** after a count (`3`), an operator (`d`) or an armed
+  key (`f`, `m`, `q`, `"`), the key is Vim's as always. It is not repeated by `.` or recorded in a
+  macro.
+- **A page key replaces Vim's** for that key. Pick one you don't use (`Q`, a `<C-…>` chord).
+- **`autodoc.menu`'s `where`** is `"editor"`, the page's right-click menu, or `"plugins"`, the
+  Plugins menu. `title` takes `&` before the mnemonic letter: `"&Word count"`.
+- **`:lua-reload` drops every key and row** with the scripts; loading them again binds them again.
+
+```lua
+-- keys.lua: :stamp on Q, on SPC u s, and in the right-click menu
+autodoc.command{
+  name = "stamp",
+  help = "insert the date",
+  run = function(ed) ed:insert(autodoc.date("%Y-%m-%d")) end,
+}
+autodoc.map{ mode = "normal", keys = "Q", command = "stamp" }
+autodoc.map{ mode = "leader", keys = "s", command = "stamp", title = "today's date" }
+autodoc.menu{ where = "editor", title = "Insert the &date", command = "stamp" }
+```
 
 ## Characters: `autodoc.text`
 
@@ -232,8 +408,9 @@ once; the daemon's answer goes to the callback later, as `cb(result, err)`:
 - **`err` is a string**, and `result` is `nil`: the daemon's code and message (`"-32061 not
   found"`), or what went wrong before the daemon answered (no connection, say).
 - **The callback runs as a command does:** on AutoDoc's loop, with 2 seconds, `ed` reachable, and
-  its edits one undo step of their own. The page may have changed since the call: read positions
-  again.
+  its edits one undo step of their own. The page may have changed since the call: keep
+  `ed:revision()` from before the call, and compare it in the callback. Equal, the text is the one
+  the command read, positions included; else read again, or give up.
 - **Its error is a notification**, `a Lua callback failed: <verb>'s callback: <error>`, since no
   prompt waits for it.
 - **With no callback**, a failed call is a notification: `autodoc.call(<verb>): <err>`. A call that
@@ -342,6 +519,30 @@ The ones a command reaches for most:
 | `autodoc.workspace.list(cb)` | `{{name, root, state, …}, …}` |
 | `autodoc.todos.add(store, task, cb)` | the task filed, with its `id` (Help › Tutorial…, page 9) |
 
+## Packages and capabilities
+
+A package (`lua/<name>/` with a `package.toml`, [Lua in AutoDoc](README.md#packages-scripts-to-share))
+runs **gated**: each kind of call below needs its capability, granted by you once. Without it, the
+call answers `nil` and `needs <capability>: not granted`, and does nothing.
+
+| Capability | Lets a package |
+|---|---|
+| `workspace.read` | call the daemon's reading verbs: `autodoc.search`, `autodoc.doc.read`, `autodoc.graph`, … |
+| `workspace.write` | call its writing verbs: write, rename and remove documents and tasks |
+| `settings` | change AutoDoc's settings: workspaces, models, rankers, preferences |
+| `clipboard` | `autodoc.clipboard.read` and `.write` |
+| `agents` | `autodoc.agents.list` and `.send` |
+| `commands` | run commands: `autodoc.run`, `ed:run`, and the keys and menu rows it binds (`autodoc.map`, `autodoc.menu`: they register either way, and say they need it when pressed) |
+
+- **Every daemon verb says which of the first three it needs** (its effect, in `autodoc
+  --contracts`). A verb whose effect the daemon does not say (an older daemon) is refused to a
+  package whatever it was granted.
+- **A package declares what it needs** in `package.toml`'s `requires`, or as it loads,
+  `autodoc.requires{"workspace.read"}`. AutoDoc asks after the scripts load.
+- **Its own calls are its own:** a function a package defines runs with the package's grants
+  wherever it runs from (a callback, an event, a key).
+- **`require(name)`** loads the package's `name.lua` or `name/init.lua` once; `a.b` is `a/b.lua`.
+
 ## The sandbox
 
 | There | Not there |
@@ -349,8 +550,8 @@ The ones a command reaches for most:
 | `string`, `table`, `math` | `os`, `io`, `coroutine`, `debug`, `package` |
 | `assert`, `error`, `pcall`, `xpcall`, `select`, `type`, `tostring`, `tonumber` | `require`, `module` |
 | `pairs`, `ipairs`, `next`, `unpack`, `rawget`, `rawset`, `rawequal` | `load`, `loadstring`, `dofile`, `loadfile` |
-| `setmetatable`, `getmetatable`, `getfenv`, `setfenv`, `collectgarbage`, `newproxy` | |
-| `print`: to AutoDoc's standard output, not the page; use `autodoc.notify` | |
+| `setmetatable`, `getmetatable`, `collectgarbage` | `getfenv`, `setfenv`, `newproxy`, `_printregs` |
+| `print`: a notification, its values joined by tabs, as `autodoc.notify` | `os.time`, `os.date`: `autodoc.now` and `autodoc.date` instead |
 | `_G`, `_VERSION` | |
 
 **The deadline.** A command's `run`, a callback and a file's loading each have 2 seconds. Past

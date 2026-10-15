@@ -220,9 +220,23 @@ type Host struct {
 	crashDir        string
 	recoveryOffered bool
 	// the Lua commands (scripts.go): the engine, and the user's folder of scripts
-	scripts        *script.Engine
-	scripting      *scripting // the daemon's verbs in the engine: autodoc.call, autodoc.<domain> (scripting.go)
-	luaDir         string
+	scripts   *script.Engine
+	scripting *scripting // the daemon's verbs in the engine: autodoc.call, autodoc.<domain> (scripting.go)
+	luaDir    string
+	editorDir string
+	// gated Lua scripts' questions (luagate.go): those waiting, one open, and whether the store's
+	// answers have been read
+	luaAsks                 []luaAsk
+	luaAsking, luaPrefsRead bool
+	// Lua events (luaevents.go): the change debounce's generation, the revision the last change emit
+	// (or open) saw, and the mode last emitted
+	luaChangeGen uint64
+	// luaRoots are the running engine's package folders, open while it may require from them
+	luaRoots []*os.Root
+	// editorSock is the socket the agents reach the page through (editorsocket.go); nil without
+	editorSock     *editorSocket
+	luaChangeRev   uint64
+	luaMode        string
 	recoveryQueue  []recovered
 	pendingRestore *recovered
 	restoreWaiting bool       // a restore is under way: its open, or the unsaved question before it
@@ -297,7 +311,9 @@ type Options struct {
 	CrashDir string
 	// LuaDir holds the user's Lua commands, every *.lua in it (scripts.go); "" loads only AutoDoc's
 	// own.
-	LuaDir string
+	// EditorDir is where the TUI's editor socket for its agents goes (editorsocket.go); "" for none.
+	EditorDir string
+	LuaDir    string
 	// ConfigPath is the config file the TUI runs on: the agent's autodoc runs on it too, so it
 	// reaches the TUI's store (agent.go). "" is the default config.
 	ConfigPath string
@@ -331,7 +347,7 @@ func New(session *Session, opt Options) (*Host, error) {
 func newHost(session *Session, opt Options) *Host {
 	ctx, cancel := context.WithCancel(context.Background())
 	h := &Host{session: session, ctx: ctx, cancel: cancel, about: opt.About, aboutInfo: opt.AboutInfo, dev: opt.Dev,
-		ws: opt.Workspace, remember: opt.Remember, installed: opt.Installed, ownTables: opt.Registrations, recoveryDir: opt.RecoveryDir, crashDir: opt.CrashDir, luaDir: opt.LuaDir,
+		ws: opt.Workspace, remember: opt.Remember, installed: opt.Installed, ownTables: opt.Registrations, recoveryDir: opt.RecoveryDir, crashDir: opt.CrashDir, luaDir: opt.LuaDir, editorDir: opt.EditorDir,
 		awaitExit:       awaitExit,
 		browser:         openDefaultApp,
 		wsProviders:     tuidecl.NewListModel("key", "label"),
@@ -359,6 +375,7 @@ func newHost(session *Session, opt Options) *Host {
 	h.searchPick, h.openPick, h.newPick = h.newSearchPick(), h.newOpenPick(), h.newNewPick()
 	h.terminals = newTerminals(unboundPanelHost(core{h}))
 	h.agents = newAgents(unboundPanelHost(core{h}), opt.AgentDir, opt.ConfigPath)
+	h.agents.editorPath = h.editorSocketPath // AUTODOC_EDITOR for the agents it starts
 	h.plugins = newPlugins(core{h}, opt.Plugins)
 	return h
 }
@@ -385,6 +402,7 @@ func (h *Host) attach(p *tuidecl.Program) error {
 	h.cat.attach(h.core)             // the catalog's verbs on the command line: find is the page's (catalog.go)
 	h.core.SetOnEscape(h.escapeFind) // Esc in the page ends its find (find.go)
 	h.loadScripts()                  // the Lua commands: AutoDoc's own, then the user's (scripts.go)
+	h.startEditorSocket(h.editorDir) // the page as the agents' tools (editorsocket.go)
 	h.core.SetTableEditing(true)     // the untitled draft is Markdown; readPage decides for a file
 	h.installEditorMenu()            // the stock rows, then related documents and back
 	h.linkPage()                     // a raw HTML file's page opens its links as the preview pane does
@@ -454,6 +472,10 @@ func (h *Host) Run(ctx context.Context) error {
 	keepErr := h.ended(err)
 	if h.scripts != nil {
 		h.scripts.Close()
+	}
+	closeRoots(h.luaRoots)
+	if h.editorSock != nil {
+		h.editorSock.stop()
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()

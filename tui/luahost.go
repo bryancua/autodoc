@@ -65,6 +65,8 @@ func (s *scripting) bindHost(eng *script.Engine, host luaHost) {
 	ag := L.NewTable()
 	L.SetFuncs(ag, map[string]lua.LGFunction{"list": s.luaAgentsList, "send": s.luaAgentsSend})
 	L.SetField(eng.Global(), "agents", ag)
+	eng.SetDomainGate("clipboard", func(string, *lua.LState) string { return "clipboard" })
+	eng.SetDomainGate("agents", func(string, *lua.LState) string { return "agents" })
 }
 
 // later runs cb(res, err) on a later turn of the loop: a refusal is never a callback inside the call.
@@ -87,7 +89,7 @@ func (s *scripting) callback(name string, cb *lua.LFunction, res lua.LValue, err
 	if res == nil {
 		res = lua.LNil
 	}
-	if e := s.eng.Callback(name+"'s callback", cb, res, errv); e != nil {
+	if e := s.eng.Callback(name+"'s callback", cb, res, errv); e != nil && !errors.Is(e, script.ErrStale) {
 		s.c.Notify("a Lua callback failed: " + e.Error())
 	}
 }

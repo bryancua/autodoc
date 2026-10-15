@@ -356,6 +356,9 @@ func (h *Host) show(ws, p, content, version string, raw bool) {
 	h.readPage()
 	h.showPage() // the relations are read for it (relations.go: Shown)
 	h.htmlPaneNoteChanged()
+	// a script hears the file once it is in (luaevents.go); before a restored copy, which is an edit
+	// of it: readPage again (registrations arriving) is no new page
+	h.emitOpen()
 	h.applyPendingRestore(ws, p)
 }
 
@@ -495,6 +498,7 @@ func (h *Host) closeFile() {
 	h.clearDiagnostics()
 	h.showPage()
 	h.htmlPaneNoteChanged()
+	h.emitOpen() // the draft is the page now (luaevents.go)
 }
 
 // edited is the editor's text changing: typed, so the file (or the draft) has unsaved changes.
@@ -506,6 +510,7 @@ func (h *Host) edited() {
 	h.fmGen++
 	h.pageSoon()
 	h.syncPageWidth() // a line count with another number of digits widens the gutter
+	h.changeSoon()    // a script's change handlers, after the pause (luaevents.go)
 }
 
 func (h *Host) setDirty(v bool) {
@@ -522,7 +527,10 @@ func (h *Host) setDirty(v bool) {
 }
 
 // syncMode brings the status line's mode up to date with the editor's.
-func (h *Host) syncMode() { h.setWhere(h.where) }
+func (h *Host) syncMode() {
+	h.setWhere(h.where)
+	h.emitMode() // luaevents.go
+}
 
 // save writes the file at the version it was read at; the draft is named first.
 func (h *Host) save() {
@@ -618,6 +626,12 @@ func (h *Host) write(content, want string, after func()) {
 				h.settleRecovery(ws, p)
 			}
 			h.notify("saved " + p)
+			if !newer {
+				h.reloadOnSave(ws, p) // the user's own script: loaded again at once
+			}
+			if !newer {
+				h.emitLua("save", map[string]any{"path": p, "workspace": ws})
+			}
 			switch {
 			case after == nil:
 			case newer:

@@ -57,7 +57,9 @@
 // A host function that must wait (a call to a server) never waits on the loop: it takes a Lua
 // function, does its work elsewhere, and hands the answer back on the loop with Callback, which
 // runs the function as a command runs (the deadline, the editor, one undo step). ToGo and ToLua
-// carry the values across, shaped as msgpack carries them.
+// carry the values across, shaped as msgpack carries them. To reload its scripts a host makes a new
+// engine and closes the old one (never while Running); an answer coming back for a function of
+// the old one is Callback's ErrStale, and dropped.
 //
 // A command's edits are one undo step (the editor runs every command in one). A script runs on the
 // UI loop, as everything that touches the editor does, with a deadline (WithTimeout); an error, a
@@ -89,6 +91,10 @@ import (
 // DefaultTimeout is how long one command's script, or one file's loading, may run.
 const DefaultTimeout = 2 * time.Second
 
+// ErrStale is Callback's answer for a function another engine made: an engine a reload replaced,
+// whose host function's answer came after. The function is not run.
+var ErrStale = errors.New("script: a callback of a replaced engine")
+
 // Engine is one Lua state registering into one editor's commands.
 type Engine struct {
 	L       *lua.LState
@@ -102,6 +108,22 @@ type Engine struct {
 	// file being loaded, which a registration names
 	register func(Registration) error
 	loading  string
+	// list is what commands() lists in place of the editor's registry (SetCommandList)
+	list func() []CommandInfo
+	// clock and location are now's and date's (WithClock)
+	clock    func() time.Time
+	location *time.Location
+	// gated scripts (gate.go): the global table's name, the gates hosts set, every gated script's
+	// environment, and base, the sandbox's globals a gated environment starts from
+	globalName  string
+	gates       map[string]Gate
+	domainGates map[string]Gate
+	envs        map[*lua.LTable]*gatedScript
+	base        *lua.LTable
+	// handlers are on's, by event (events.go)
+	handlers map[string][]*lua.LFunction
+	// calling is the gated script whose proxy called the host function running now (Caller)
+	calling *gatedScript
 }
 
 // Registration is one command{…} as a host's registrar takes it: its id and title, the file that
@@ -118,9 +140,11 @@ type Registration struct {
 type Option func(*config)
 
 type config struct {
-	global  string
-	notify  func(string)
-	timeout time.Duration
+	global   string
+	notify   func(string)
+	timeout  time.Duration
+	clock    func() time.Time
+	location *time.Location
 }
 
 // WithGlobal names the global table scripts register through ("editor" by default): AutoDoc's is
@@ -134,9 +158,15 @@ func WithNotify(fn func(string)) Option { return func(c *config) { c.notify = fn
 // WithTimeout is how long one command's script may run before it is stopped (DefaultTimeout).
 func WithTimeout(d time.Duration) Option { return func(c *config) { c.timeout = d } }
 
+// WithClock is where now() and date() read the time, and the zone date() writes local time in
+// (time.Now and time.Local by default): a test's fixed time, say.
+func WithClock(now func() time.Time, loc *time.Location) Option {
+	return func(c *config) { c.clock, c.location = now, loc }
+}
+
 // New is an engine registering into core's commands.
 func New(core *widget.EditorCore, opts ...Option) *Engine {
-	cfg := config{global: "editor", timeout: DefaultTimeout}
+	cfg := config{global: "editor", timeout: DefaultTimeout, clock: time.Now, location: time.Local}
 	for _, o := range opts {
 		o(&cfg)
 	}
@@ -149,11 +179,16 @@ func New(core *widget.EditorCore, opts ...Option) *Engine {
 		L.Push(lua.LString(lib.name))
 		L.Call(1, 0)
 	}
-	// the base library reads files and loads code: a script has neither
-	for _, name := range []string{"dofile", "loadfile", "load", "loadstring", "require", "module"} {
+	// the base library reads files and loads code, which a script may not; reaches other
+	// functions' environments (getfenv, setfenv) and makes userdata (newproxy), which a sandbox
+	// keeps to itself; and writes to standard output (_printregs; print is notify's, below)
+	for _, name := range []string{"dofile", "loadfile", "load", "loadstring", "require", "module",
+		"getfenv", "setfenv", "newproxy", "_printregs"} {
 		L.SetGlobal(name, lua.LNil)
 	}
-	e := &Engine{L: L, core: core, notify: cfg.notify, timeout: cfg.timeout}
+	e := &Engine{L: L, core: core, notify: cfg.notify, timeout: cfg.timeout, clock: cfg.clock, location: cfg.location,
+		globalName: cfg.global, gates: map[string]Gate{}, domainGates: map[string]Gate{}, envs: map[*lua.LTable]*gatedScript{},
+		handlers: map[string][]*lua.LFunction{}}
 	e.global = L.NewTable()
 	L.SetField(e.global, "command", L.NewFunction(e.luaCommand))
 	L.SetField(e.global, "notify", L.NewFunction(func(L *lua.LState) int {
@@ -165,11 +200,27 @@ func New(core *widget.EditorCore, opts ...Option) *Engine {
 	L.SetGlobal(cfg.global, e.global)
 	e.registerEditorType()
 	e.registerText()
+	e.registerGlobals()
+	// a string's methods are the string library itself: no script reaches it through a string
+	if mt, ok := L.GetMetatable(lua.LString("")).(*lua.LTable); ok {
+		mt.RawSetString("__metatable", lua.LString("the string library"))
+	}
+	// the sandbox as it stands now is what a gated script's environment starts from
+	e.base = L.NewTable()
+	L.G.Global.ForEach(func(k, v lua.LValue) {
+		if k != lua.LString(cfg.global) && k != lua.LString("_G") {
+			e.base.RawSet(k, v)
+		}
+	})
 	return e
 }
 
 // Close releases the Lua state.
 func (e *Engine) Close() { e.L.Close() }
+
+// Running reports whether a script is running now: a file loading, a command, a completion or a
+// callback. A host does not close the engine (a reload) from inside one.
+func (e *Engine) Running() bool { return e.cur != nil || e.loading != "" }
 
 // Global is the global table scripts register through: a host adds its own fields to it, tables
 // of functions among them (AutoDoc's autodoc.search.query). Only the loop touches it.
@@ -198,6 +249,21 @@ func (e *Engine) Load(name string, src []byte) error {
 	if err != nil {
 		return e.failure(name, ctx, err)
 	}
+	e.L.Push(fn)
+	if err := e.L.PCall(0, 0, nil); err != nil {
+		return e.failure(name, ctx, err)
+	}
+	return nil
+}
+
+// run runs a compiled script, fn, as Load runs one: name being loaded, under the deadline.
+func (e *Engine) run(name string, fn *lua.LFunction) error {
+	e.loading = name
+	defer func() { e.loading = "" }()
+	ctx, cancel := context.WithTimeout(context.Background(), e.timeout)
+	defer cancel()
+	e.L.SetContext(ctx)
+	defer e.L.RemoveContext()
 	e.L.Push(fn)
 	if err := e.L.PCall(0, 0, nil); err != nil {
 		return e.failure(name, ctx, err)
@@ -234,8 +300,9 @@ func (e *Engine) LoadDir(fsys fs.FS, dir string) []error {
 	return errs
 }
 
-// luaCommand is the global table's command{name, aliases, args, help, run, id, title}: a verb of
-// the command line, replacing any registered under its name, or the host's registrar's to place.
+// luaCommand is the global table's command{name, aliases, args, help, run, complete, id, title}: a
+// verb of the command line, replacing any registered under its name, or the host's registrar's to
+// place.
 func (e *Engine) luaCommand(L *lua.LState) int {
 	spec := L.CheckTable(1)
 	name := lua.LVAsString(spec.RawGetString("name"))
@@ -248,12 +315,18 @@ func (e *Engine) luaCommand(L *lua.LState) int {
 	if t, ok := spec.RawGetString("aliases").(*lua.LTable); ok {
 		t.ForEach(func(_, v lua.LValue) { aliases = append(aliases, lua.LVAsString(v)) })
 	}
+	complete, err := e.completer(name, spec.RawGetString("complete"))
+	if err != nil {
+		L.ArgError(1, err.Error())
+		return 0
+	}
 	cmd := widget.Command{
-		Name:    name,
-		Aliases: aliases,
-		Args:    lua.LVAsString(spec.RawGetString("args")),
-		Help:    lua.LVAsString(spec.RawGetString("help")),
-		Run:     func(x widget.CommandContext) error { return e.runCommand(name, run, x) },
+		Name:     name,
+		Aliases:  aliases,
+		Args:     lua.LVAsString(spec.RawGetString("args")),
+		Help:     lua.LVAsString(spec.RawGetString("help")),
+		Run:      func(x widget.CommandContext) error { return e.runCommand(name, run, x) },
+		Complete: complete,
 	}
 	if e.register != nil {
 		r := Registration{ID: lua.LVAsString(spec.RawGetString("id")), Title: lua.LVAsString(spec.RawGetString("title")),
@@ -294,7 +367,7 @@ func (e *Engine) runCommand(name string, run *lua.LFunction, x widget.CommandCon
 	cmd := L.CreateTable(0, 2)
 	L.SetField(cmd, "name", lua.LString(cmp.Or(x.Name, name)))
 	L.SetField(cmd, "bang", lua.LBool(x.Bang))
-	return e.protect(name, run, e.editorValue(), args, lua.LString(x.Line), cmd)
+	return e.protect(name, run, e.editorValueFor(run), args, lua.LString(x.Line), cmd)
 }
 
 // Callback calls fn with args later, on the UI loop: when the answer a host function went to fetch
@@ -304,6 +377,11 @@ func (e *Engine) runCommand(name string, run *lua.LFunction, x widget.CommandCon
 // then than the command that asked had; a callback reads where things are now. name names fn in
 // the error ("search.query's callback").
 func (e *Engine) Callback(name string, fn *lua.LFunction, args ...lua.LValue) error {
+	// a function's environment is its engine's globals or a gated script's: no script can change it
+	// (no setfenv)
+	if !e.owns(fn) {
+		return ErrStale
+	}
 	return e.core.Batch(func() error {
 		prev := e.cur
 		e.cur = e.core
@@ -315,6 +393,13 @@ func (e *Engine) Callback(name string, fn *lua.LFunction, args ...lua.LValue) er
 // protect calls fn with args under the deadline; an error, fn's or the deadline's, names name. The
 // deadline of a call it runs inside (a command running another through ed:run) is restored after.
 func (e *Engine) protect(name string, fn *lua.LFunction, args ...lua.LValue) error {
+	_, err := e.call(name, fn, 0, args...)
+	return err
+}
+
+// call is protect for a function that answers: its first nret results (nil for one it did not
+// give), read before the deadline is lifted.
+func (e *Engine) call(name string, fn *lua.LFunction, nret int, args ...lua.LValue) ([]lua.LValue, error) {
 	L := e.L
 	ctx, cancel := context.WithTimeout(context.Background(), e.timeout)
 	defer cancel()
@@ -331,10 +416,67 @@ func (e *Engine) protect(name string, fn *lua.LFunction, args ...lua.LValue) err
 	for _, a := range args {
 		L.Push(a)
 	}
-	if err := L.PCall(len(args), 0, nil); err != nil {
-		return e.failure(name, ctx, err)
+	if err := L.PCall(len(args), nret, nil); err != nil {
+		return nil, e.failure(name, ctx, err)
 	}
-	return nil
+	out := make([]lua.LValue, nret)
+	for i := range out {
+		out[i] = L.Get(-nret + i)
+	}
+	L.Pop(nret)
+	return out, nil
+}
+
+// completer is a command's complete field as golib's Command.Complete: a list is its candidates
+// as they are; a function is called as complete(ed, word, args, cmd) on the loop, as run is
+// called, and answers a list of strings. A function's error, or an answer that is not a list, is
+// said through notify, and Tab then shows the command's arguments.
+func (e *Engine) completer(name string, v lua.LValue) (func(widget.CompleteContext) []string, error) {
+	switch x := v.(type) {
+	case *lua.LNilType:
+		return nil, nil
+	case *lua.LTable:
+		fixed := stringList(x)
+		return func(widget.CompleteContext) []string { return fixed }, nil
+	case *lua.LFunction:
+		return func(c widget.CompleteContext) []string {
+			L := e.L
+			prev := e.cur
+			e.cur = cmp.Or(c.Core, e.core)
+			defer func() { e.cur = prev }()
+			args := L.NewTable()
+			for _, a := range c.Args {
+				args.Append(lua.LString(a))
+			}
+			cmd := L.CreateTable(0, 2)
+			L.SetField(cmd, "name", lua.LString(cmp.Or(c.Name, name)))
+			L.SetField(cmd, "bang", lua.LBool(c.Bang))
+			out, err := e.call(name+"'s complete", x, 1, e.editorValueFor(x), lua.LString(c.Word), args, cmd)
+			if err == nil {
+				if t, ok := out[0].(*lua.LTable); ok {
+					return stringList(t)
+				}
+				err = fmt.Errorf("%s's complete: answered a %s, not a list of strings", name, out[0].Type())
+			}
+			if e.notify != nil {
+				e.notify(err.Error())
+			}
+			return nil
+		}, nil
+	}
+	return nil, fmt.Errorf("complete is a list of strings or a function, not a %s", v.Type())
+}
+
+// stringList is t's list part as strings: a string or a number as written, anything else left out.
+func stringList(t *lua.LTable) []string {
+	var out []string
+	for i := 1; i <= t.Len(); i++ {
+		switch v := t.RawGetInt(i).(type) {
+		case lua.LString, lua.LNumber:
+			out = append(out, v.String())
+		}
+	}
+	return out
 }
 
 // failure is err, a script's failure under ctx, as its message, named name: the deadline said as
